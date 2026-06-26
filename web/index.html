@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Strain</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Screen-reader summary of current run state. Updated by main.js. -->
+  <h2 id="sr-summary" class="sr-only" aria-live="polite">Strain. A microbial survival game. Choose a strain to begin.</h2>
+
+  <main id="app">
+
+    <!-- ================= MENU ================= -->
+    <section id="screen-menu" class="screen active" aria-label="Main menu">
+      <h1>Strain</h1>
+      <p class="subtitle">A microbe under fire. Grow, hide, and break out before the immune system learns you.</p>
+
+      <div class="card">
+        <div class="menu-actions">
+          <button id="btn-new-run" class="btn btn-primary" type="button">New run</button>
+        </div>
+        <div class="menu-meta">
+          <span class="best-score">Best transmission turn: <strong id="best-score">—</strong></span>
+          <button id="audio-toggle" class="icon-btn" type="button" aria-label="Toggle sound">♪</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= BUILD / DRAFT ================= -->
+    <section id="screen-build" class="screen" aria-label="Choose a strain">
+      <h1>Choose a strain</h1>
+      <p class="subtitle">Pick a proven strain, or allocate a custom genome.</p>
+
+      <!-- genome.js (mountBuildScreen) fills this with preset cards + the custom
+           genome allocator + the start button. Its contents are replaced on mount. -->
+      <div id="build-root" class="card"></div>
+
+      <div class="menu-actions" style="margin-top:16px;">
+        <button id="btn-back-menu" class="btn" type="button">Back</button>
+      </div>
+    </section>
+
+    <!-- ================= PLAY ================= -->
+    <section id="screen-play" class="screen" aria-label="Play">
+      <div class="play-header">
+        <h1 id="strain-title">Strain</h1>
+        <span class="turn-counter">Turn <strong id="turn-now">0</strong> / 18
+          <button id="audio-toggle-play" class="icon-btn" type="button" aria-label="Toggle sound" style="margin-left:8px;">♪</button>
+        </span>
+      </div>
+
+      <div class="card">
+        <div class="stats">
+          <!-- Colony load (with transmit-able tick marker) -->
+          <div class="stat-row">
+            <div class="stat-label"><span>Colony load</span><span class="stat-val" id="val-colony">0</span></div>
+            <div class="bar bar-wrap">
+              <div class="bar-fill colony" id="stat-colony"></div>
+              <div class="bar-mark" id="mark-colony"></div>
+            </div>
+          </div>
+          <!-- Host stability -->
+          <div class="stat-row">
+            <div class="stat-label"><span>Host stability</span><span class="stat-val" id="val-host">100</span></div>
+            <div class="bar"><div class="bar-fill host" id="stat-host"></div></div>
+          </div>
+          <!-- Immune lock-on -->
+          <div class="stat-row">
+            <div class="stat-label"><span>Immune lock-on</span><span class="stat-val" id="val-lock">0</span></div>
+            <div class="bar"><div class="bar-fill lock" id="stat-lock"></div></div>
+          </div>
+          <!-- Window pill + inflammation readout -->
+          <div class="window-row">
+            <span class="pill" id="window-pill">Window closed</span>
+            <span class="stat-val">Inflammation <span id="val-infl">0</span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- colony.js draws the living colony here -->
+      <div class="canvas-wrap">
+        <canvas id="colony-canvas" width="680" height="200"></canvas>
+      </div>
+
+      <!-- hints.js fills this contextual nudge -->
+      <div class="hint" id="hint" aria-live="polite"></div>
+
+      <!-- Four actions. data-k = engine action key. -->
+      <div class="acts" id="acts">
+        <button class="btn" type="button" data-k="replicate">Replicate <span class="act-desc">grow + reveal</span></button>
+        <button class="btn" type="button" data-k="suppress">Suppress <span class="act-desc">cool down</span></button>
+        <button class="btn" type="button" data-k="provoke">Provoke <span class="act-desc">open window</span></button>
+        <button class="btn" type="button" data-k="transmit">Transmit <span class="act-desc">break out</span></button>
+      </div>
+
+      <!-- mutations.js mounts the mutation modal here (normal flow, never fixed) -->
+      <div class="mut-modal" id="mut-modal"></div>
+
+      <!-- Causality log -->
+      <div class="log" id="log" aria-label="Turn log"></div>
+    </section>
+
+    <!-- ================= AUTOPSY / RESULT ================= -->
+    <section id="screen-autopsy" class="screen" aria-label="Run result">
+      <!-- autopsy.js (loss) or win recap renders here -->
+      <div id="autopsy-root"></div>
+    </section>
+
+  </main>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
