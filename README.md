@@ -2,7 +2,16 @@
 
 Terminal prototype: steer a microbe colony to **transmit** to a new host before a **learning immune system** clears it. See [`DESIGN.md`](DESIGN.md) for the full design.
 
-## Run
+## Play (browser game — the finished build)
+
+    python3 -m http.server 5188 --directory web
+    # then open http://localhost:5188
+
+Clean sci-viz UI: pick a proven strain or build a custom genome (conservation law),
+then play — animated meters, a living colony canvas, in-run breakthrough mutations,
+audio, run history, and an autopsy recap on loss (point-of-no-return + counterfactual).
+
+## Run (terminal prototype — the proven core loop)
 
     python3 main.py
 
