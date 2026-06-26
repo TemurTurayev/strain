@@ -29,12 +29,14 @@ import {
 
 import { mountBuildScreen } from "./genome.js";
 import { offerMutations, mountMutationModal } from "./mutations.js";
-import { mountColony, updateColony } from "./colony.js";
+import { mountColony, updateColony, stopColony } from "./colony.js";
 import { flash, shake, popNumber } from "./juice.js";
 import { hint } from "./hints.js";
 import { buildAutopsy, renderAutopsy } from "./autopsy.js";
 import { saveRun, bestTransmissionTurn } from "./history.js";
 import { initAudio, play, setMuted, isMuted } from "./audio.js";
+import { countUp, burst } from "./fx.js";
+import { isFirstVisit, markSeen, openHowTo, closeHowTo } from "./tutorial.js";
 
 // ----------------------------------------------------------------------------
 // DOM lookups (per §DOM contract)
@@ -42,6 +44,7 @@ import { initAudio, play, setMuted, isMuted } from "./audio.js";
 const $ = (id) => document.getElementById(id);
 
 const screens = {
+  intro: $("screen-intro"),
   menu: $("screen-menu"),
   build: $("screen-build"),
   play: $("screen-play"),
@@ -79,6 +82,12 @@ const els = {
   log: $("log"),
   // autopsy / result
   autopsyRoot: $("autopsy-root"),
+  // intro + how-to
+  introContinue: $("btn-intro-continue"),
+  introHowto: $("btn-intro-howto"),
+  howto: $("btn-howto"),
+  howtoPlay: $("btn-howto-play"),
+  howtoOverlay: $("howto-overlay"),
 };
 
 // ----------------------------------------------------------------------------
@@ -126,6 +135,7 @@ function clear(node) {
 // Menu
 // ----------------------------------------------------------------------------
 function renderMenu() {
+  stopColony();
   const best = bestTransmissionTurn();
   els.bestScore.textContent = best == null ? "—" : String(best);
   setSummary("Strain. Choose a strain to begin a new run.");
@@ -136,6 +146,7 @@ function renderMenu() {
 // Build / draft screen (genome.js owns the contents of #build-root)
 // ----------------------------------------------------------------------------
 function renderBuild() {
+  stopColony();
   mountBuildScreen(els.buildRoot, startRun);
   setSummary(
     "Build screen. Pick a proven strain or allocate a custom genome of " +
@@ -229,6 +240,7 @@ function promptMutation(choices) {
 function finishRun(verdict) {
   const [outcome, title, detail] = verdict;
   setActionsEnabled(false);
+  stopColony();
 
   const record = {
     strain: build.key || build.name,
@@ -328,19 +340,19 @@ function render() {
   // Colony load bar (0..COL_VIS scale) + transmit-able tick marker.
   const colonyPct = clampPct((state.colony_load / COL_VIS) * 100);
   els.statColony.style.width = colonyPct + "%";
-  els.valColony.textContent = state.colony_load.toFixed(1);
+  countUp(els.valColony, state.colony_load, { decimals: 1 });
   const markPct = clampPct((need(build) / COL_VIS) * 100);
   els.markColony.style.left = markPct + "%";
 
   // Host stability bar (0..START_HOST scale).
   const hostPct = clampPct((state.host_stability / START_HOST) * 100);
   els.statHost.style.width = hostPct + "%";
-  els.valHost.textContent = Math.max(0, state.host_stability).toFixed(1);
+  countUp(els.valHost, Math.max(0, state.host_stability), { decimals: 1 });
 
   // Immune lock-on bar (0..100), tinting accent → warning → danger.
   const lockPct = clampPct(state.immune_lockon);
   els.statLock.style.width = lockPct + "%";
-  els.valLock.textContent = state.immune_lockon.toFixed(1);
+  countUp(els.valLock, state.immune_lockon, { decimals: 1 });
   els.statLock.style.background =
     state.immune_lockon >= 70
       ? "var(--danger)"
@@ -349,7 +361,7 @@ function render() {
       : "var(--accent)";
 
   // Inflammation readout.
-  els.valInfl.textContent = state.inflammation.toFixed(1);
+  countUp(els.valInfl, state.inflammation, { decimals: 1 });
 
   // Window pill (glow when open; success-tinted when a transmit would land).
   renderWindowPill();
@@ -431,6 +443,7 @@ function reactToLog(action, log) {
   if (tags.includes("ok")) {
     flash(els.statColony, "success");
     popNumber(els.windowPill, "transmit!", "success");
+    burst(els.windowPill, { color: "var(--success)", count: 20, spread: 64 });
   }
 
   // Failed transmit — shake the action and play a hit.
@@ -514,6 +527,10 @@ function toggleAudio() {
 // ----------------------------------------------------------------------------
 // Wiring
 // ----------------------------------------------------------------------------
+function openHelp() {
+  openHowTo(els.howtoOverlay);
+}
+
 function init() {
   els.newRun.addEventListener("click", renderBuild);
   els.backMenu.addEventListener("click", renderMenu);
@@ -528,8 +545,31 @@ function init() {
   if (els.audioTogglePlay)
     els.audioTogglePlay.addEventListener("click", toggleAudio);
 
+  // Onboarding: intro screen + how-to overlay.
+  if (els.introContinue)
+    els.introContinue.addEventListener("click", () => { markSeen(); renderMenu(); });
+  for (const b of [els.introHowto, els.howto, els.howtoPlay]) {
+    if (b) b.addEventListener("click", openHelp);
+  }
+  if (els.howtoOverlay) {
+    els.howtoOverlay.addEventListener("click", (e) => {
+      if (e.target === els.howtoOverlay || e.target.closest("[data-howto-close]")) {
+        closeHowTo(els.howtoOverlay);
+      }
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeHowTo(els.howtoOverlay);
+  });
+
   refreshAudioToggles();
-  renderMenu();
+
+  if (isFirstVisit()) {
+    setSummary("Strain. A microbial survival game. Read the intro, then begin.");
+    show("intro");
+  } else {
+    renderMenu();
+  }
 }
 
 init();

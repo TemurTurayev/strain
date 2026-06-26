@@ -498,3 +498,108 @@ button {
   .acts { grid-template-columns: 1fr; }
   .autopsy-stats { grid-template-columns: 1fr; }
 }
+
+/* ======================================================================
+   UPGRADE: onboarding, goal banner, helper text, how-to overlay, polish
+   ====================================================================== */
+
+/* ---- Intro / story screen -------------------------------------------- */
+.intro { max-width: 540px; margin: 6vh auto 0; text-align: center; }
+.intro-eyebrow {
+  text-transform: none; letter-spacing: .04em; font-size: 13px;
+  color: var(--accent); margin: 0 0 6px;
+}
+.intro-title { font-size: 46px; margin: 0 0 18px; letter-spacing: -0.5px; }
+.intro-lead { color: var(--text-2); font-size: 17px; line-height: 1.7; margin: 0 auto 14px; max-width: 480px; }
+.intro .menu-actions { justify-content: center; margin-top: 26px; }
+
+/* ---- Always-visible goal banner -------------------------------------- */
+.goal-banner {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  margin-bottom: 16px;
+}
+.goal-banner strong { color: var(--accent); }
+
+/* ---- Per-indicator helper text --------------------------------------- */
+.stat-help {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+.stat-label > span:first-child { font-weight: 500; }
+
+/* ---- Animated meters: smoother + tabular numbers --------------------- */
+.bar-fill { transition: width .45s cubic-bezier(.22,.61,.36,1), background .3s ease; }
+.stat-val { font-variant-numeric: tabular-nums; }
+
+/* ---- Window pill: breathe while open --------------------------------- */
+.pill.open, .pill.success { animation: pill-breathe 1.8s ease-in-out infinite; }
+@keyframes pill-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(31,157,87,.0); }
+  50% { box-shadow: 0 0 0 4px rgba(31,157,87,.18); }
+}
+
+/* ---- Living colony canvas frame -------------------------------------- */
+.canvas-wrap {
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+#colony-canvas { display: block; width: 100%; height: 220px; }
+
+/* ---- Action buttons: a touch more tactile ---------------------------- */
+.acts .btn { transition: transform .08s ease, background .2s ease, border-color .2s ease; }
+.acts .btn:not(:disabled):active { transform: translateY(1px); }
+
+/* ---- How-to overlay --------------------------------------------------- */
+.overlay {
+  position: fixed; inset: 0; z-index: 50;
+  display: none;
+  align-items: flex-start; justify-content: center;
+  background: rgba(22, 33, 46, 0.45);
+  padding: 5vh 16px; overflow-y: auto;
+}
+.overlay.show { display: flex; }
+.overlay-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  max-width: 560px; width: 100%;
+  padding: 22px 24px 24px;
+  box-shadow: 0 12px 40px rgba(22,33,46,.18);
+}
+.overlay-head { display: flex; align-items: center; justify-content: space-between; }
+.overlay-head h2 { margin: 0; }
+.overlay-goal {
+  background: var(--accent-soft); border: 1px solid var(--accent);
+  border-radius: var(--radius); padding: 10px 14px;
+  font-size: 14px; line-height: 1.6; color: var(--text); margin: 12px 0 18px;
+}
+.overlay-card h3 { font-size: 15px; margin: 18px 0 8px; }
+.explain { list-style: none; margin: 0; padding: 0; }
+.explain li { font-size: 14px; line-height: 1.6; color: var(--text-2); padding: 6px 0; }
+.explain li strong { color: var(--text); }
+.overlay-note { font-size: 14px; line-height: 1.65; color: var(--text-2); margin: 4px 0 0; }
+.dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  margin-right: 8px; vertical-align: middle;
+}
+.dot-colony { background: var(--accent); }
+.dot-host { background: var(--success); }
+.dot-lock { background: var(--danger); }
+.dot-window { background: var(--warning); }
+
+/* ---- Reduced motion: calm everything down ---------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .bar-fill,
+  .acts .btn { transition: none; }
+  .pill.open, .pill.success { animation: none; }
+}

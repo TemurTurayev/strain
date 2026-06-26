@@ -12,6 +12,26 @@
 
   <main id="app">
 
+    <!-- ================= INTRO / STORY ================= -->
+    <section id="screen-intro" class="screen" aria-label="Introduction">
+      <div class="intro">
+        <p class="intro-eyebrow">A microbial survival simulation</p>
+        <h1 class="intro-title">Strain</h1>
+        <p class="intro-lead">
+          You are a colony of microbes inside a living host. The host's immune system
+          slowly learns to recognise you — and once it does, it clears you out.
+        </p>
+        <p class="intro-lead">
+          Grow your population, stay ahead of detection, and break out to a new host
+          before time runs out. Every choice is a trade-off.
+        </p>
+        <div class="menu-actions">
+          <button id="btn-intro-continue" class="btn btn-primary" type="button">Begin</button>
+          <button id="btn-intro-howto" class="btn" type="button">How to play</button>
+        </div>
+      </div>
+    </section>
+
     <!-- ================= MENU ================= -->
     <section id="screen-menu" class="screen active" aria-label="Main menu">
       <h1>Strain</h1>
@@ -20,6 +40,7 @@
       <div class="card">
         <div class="menu-actions">
           <button id="btn-new-run" class="btn btn-primary" type="button">New run</button>
+          <button id="btn-howto" class="btn" type="button">How to play</button>
         </div>
         <div class="menu-meta">
           <span class="best-score">Best transmission turn: <strong id="best-score">—</strong></span>
@@ -33,8 +54,6 @@
       <h1>Choose a strain</h1>
       <p class="subtitle">Pick a proven strain, or allocate a custom genome.</p>
 
-      <!-- genome.js (mountBuildScreen) fills this with preset cards + the custom
-           genome allocator + the start button. Its contents are replaced on mount. -->
       <div id="build-root" class="card"></div>
 
       <div class="menu-actions" style="margin-top:16px;">
@@ -47,28 +66,34 @@
       <div class="play-header">
         <h1 id="strain-title">Strain</h1>
         <span class="turn-counter">Turn <strong id="turn-now">0</strong> / 18
-          <button id="audio-toggle-play" class="icon-btn" type="button" aria-label="Toggle sound" style="margin-left:8px;">♪</button>
+          <button id="btn-howto-play" class="icon-btn" type="button" aria-label="How to play" title="How to play">?</button>
+          <button id="audio-toggle-play" class="icon-btn" type="button" aria-label="Toggle sound">♪</button>
         </span>
+      </div>
+
+      <!-- Always-visible goal -->
+      <div class="goal-banner" id="goal-banner">
+        <strong>Goal</strong> — grow, open a transmission window, and break out to a new host before the immune system clears you, the host dies, or 18 turns pass.
       </div>
 
       <div class="card">
         <div class="stats">
           <!-- Colony load (with transmit-able tick marker) -->
           <div class="stat-row">
-            <div class="stat-label"><span>Colony load</span><span class="stat-val" id="val-colony">0</span></div>
+            <div class="stat-label"><span>Colony load <span class="stat-help">your population — you need enough to transmit</span></span><span class="stat-val" id="val-colony">0</span></div>
             <div class="bar bar-wrap">
               <div class="bar-fill colony" id="stat-colony"></div>
-              <div class="bar-mark" id="mark-colony"></div>
+              <div class="bar-mark" id="mark-colony" title="Load needed to transmit"></div>
             </div>
           </div>
           <!-- Host stability -->
           <div class="stat-row">
-            <div class="stat-label"><span>Host stability</span><span class="stat-val" id="val-host">100</span></div>
+            <div class="stat-label"><span>Host stability <span class="stat-help">the host's health — if it hits zero, you lose</span></span><span class="stat-val" id="val-host">100</span></div>
             <div class="bar"><div class="bar-fill host" id="stat-host"></div></div>
           </div>
           <!-- Immune lock-on -->
           <div class="stat-row">
-            <div class="stat-label"><span>Immune lock-on</span><span class="stat-val" id="val-lock">0</span></div>
+            <div class="stat-label"><span>Immune lock-on <span class="stat-help">how well it has learned you — higher hits harder</span></span><span class="stat-val" id="val-lock">0</span></div>
             <div class="bar"><div class="bar-fill lock" id="stat-lock"></div></div>
           </div>
           <!-- Window pill + inflammation readout -->
@@ -81,7 +106,7 @@
 
       <!-- colony.js draws the living colony here -->
       <div class="canvas-wrap">
-        <canvas id="colony-canvas" width="680" height="200"></canvas>
+        <canvas id="colony-canvas" width="680" height="220"></canvas>
       </div>
 
       <!-- hints.js fills this contextual nudge -->
@@ -95,7 +120,7 @@
         <button class="btn" type="button" data-k="transmit">Transmit <span class="act-desc">break out</span></button>
       </div>
 
-      <!-- mutations.js mounts the mutation modal here (normal flow, never fixed) -->
+      <!-- mutations.js mounts the mutation modal here -->
       <div class="mut-modal" id="mut-modal"></div>
 
       <!-- Causality log -->
@@ -104,11 +129,45 @@
 
     <!-- ================= AUTOPSY / RESULT ================= -->
     <section id="screen-autopsy" class="screen" aria-label="Run result">
-      <!-- autopsy.js (loss) or win recap renders here -->
       <div id="autopsy-root"></div>
     </section>
 
   </main>
+
+  <!-- ================= HOW TO PLAY OVERLAY ================= -->
+  <div id="howto-overlay" class="overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="How to play">
+    <div class="overlay-card">
+      <div class="overlay-head">
+        <h2>How to play</h2>
+        <button class="icon-btn" type="button" data-howto-close aria-label="Close">✕</button>
+      </div>
+
+      <p class="overlay-goal">Survive and spread: grow your colony, open a transmission window, and break out to a new host — before the immune system clears you, you kill the host, or 18 turns run out.</p>
+
+      <h3>The four indicators</h3>
+      <ul class="explain">
+        <li><span class="dot dot-colony"></span><strong>Colony load</strong> — your population. You need enough of it to transmit. Replicating grows it.</li>
+        <li><span class="dot dot-host"></span><strong>Host stability</strong> — the host's health. If it reaches zero you've killed your host before escaping, and you lose. Provoking lowers it.</li>
+        <li><span class="dot dot-lock"></span><strong>Immune lock-on</strong> — how well the immune system has learned your signature. The higher it climbs, the harder it damages you every turn. This is the clock you're racing.</li>
+        <li><span class="dot dot-window"></span><strong>Transmission window</strong> — your escape gate. Closed by default; provoke opens it for a few turns. You can only transmit while it's open.</li>
+      </ul>
+
+      <h3>The four actions</h3>
+      <ul class="explain">
+        <li><strong>Replicate</strong> — grow the colony, but you inflame the host and the immune system learns you faster.</li>
+        <li><strong>Suppress</strong> — calm inflammation and lower immune lock-on, but you don't grow this turn (you lose tempo).</li>
+        <li><strong>Provoke</strong> — trigger a symptom to open the transmission window for 3 turns. It costs host stability.</li>
+        <li><strong>Transmit</strong> — break out to a new host. Works only while a window is open and your colony is large enough. This wins the run.</li>
+      </ul>
+
+      <h3>The tension</h3>
+      <p class="overlay-note">Grow loud and fast and the immune system locks on before you can escape. Stay too quiet and you run out of time. Each strain tilts this balance differently — Aggressive races, Silent hides, Sticky transmits early.</p>
+
+      <div class="menu-actions">
+        <button class="btn btn-primary" type="button" data-howto-close>Got it</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="src/main.js"></script>
 </body>

@@ -1,210 +1,193 @@
-// colony.js — canvas visualization of the living colony + immune presence.
+// colony.js — living, continuously-animated colony canvas.
+//   mountColony(canvas)        start the render loop
+//   updateColony(state, build) feed the latest game state (display eases toward it)
+//   stopColony()               cancel the loop (call when leaving the play screen)
 //
-// Self-contained ES module. Imports ONLY from ./engine.js.
-//
-// Contract (§Module contracts):
-//   mountColony(canvasEl)          → bind to a <canvas>, prep the 2d context.
-//   updateColony(state, build)     → redraw for the current engine state:
-//       - N clustered colony cells scaling with colony_load (vs COL_VIS),
-//       - immune sentinels scaling with immune_lockon, closing in from the edges,
-//       - a soft window glow when transmission_window > 0.
-//
-// Flat clinical colors are pulled from the CSS palette tokens at draw time so the
-// canvas matches the sci-viz theme. No animation loop, no game logic here — the
-// orchestrator calls updateColony() once per turn, so balance can never drift.
+// Pure presentation. Reads palette tokens from CSS. Honors prefers-reduced-motion.
 
-import { COL_VIS, CARRY } from "./engine.js";
+const GOLDEN = 2.399963229; // golden angle, for even cell packing
 
-// Module-private binding to the active canvas + its 2d context.
-let canvas = null;
-let ctx = null;
+let cv = null, ctx = null, raf = null, dpr = 1;
+let target = null;          // latest { state, build }
+let disp = { load: 10, lock: 0, host: 100, window: 0 }; // eased display values
+let cells = [];             // persistent cell slots (seeded jitter/phase)
+let sentinels = [];         // persistent immune slots
+let palette = null;
+let t0 = 0;
 
-// Deterministic pseudo-random so the same load always lays out the same cluster
-// (a stable picture per turn, not a jittery reshuffle on every redraw).
-function rng(seed) {
-  let s = seed >>> 0;
-  return function next() {
-    // xorshift32 — cheap, deterministic, good enough for dot scatter.
-    s ^= s << 13; s >>>= 0;
-    s ^= s >> 17;
-    s ^= s << 5; s >>>= 0;
-    return (s >>> 0) / 4294967296;
+function reduced() {
+  try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
+}
+
+function hexToRgb(hex) {
+  const m = (hex || "").trim().replace("#", "");
+  if (m.length < 6) return [120, 120, 120];
+  return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)];
+}
+function readPalette() {
+  const cs = getComputedStyle(document.documentElement);
+  const get = (n) => cs.getPropertyValue(n);
+  return {
+    accent: hexToRgb(get("--accent")),
+    danger: hexToRgb(get("--danger")),
+    warning: hexToRgb(get("--warning")),
+    success: hexToRgb(get("--success")),
+    surface2: (get("--surface-2") || "#eef2f6").trim(),
+    border: (get("--border") || "#dbe3ea").trim(),
+    muted: hexToRgb(get("--text-muted")),
   };
 }
+function lerp(a, b, k) { return a + (b - a) * k; }
+function mix(c1, c2, k) { return [lerp(c1[0], c2[0], k), lerp(c1[1], c2[1], k), lerp(c1[2], c2[2], k)]; }
+function rgba(c, a) { return `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`; }
 
-// Read a palette token from :root so colors track the theme. Falls back to a
-// sensible literal when computed styles are unavailable (e.g. node --check).
-function token(name, fallback) {
-  try {
-    if (typeof getComputedStyle === "undefined" || !document.documentElement) {
-      return fallback;
-    }
-    const v = getComputedStyle(document.documentElement)
-      .getPropertyValue(name)
-      .trim();
-    return v || fallback;
-  } catch {
-    return fallback;
+function resize() {
+  if (!cv || !ctx) return;
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = cv.clientWidth || 680, h = cv.clientHeight || 220;
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function ensureCells(n) {
+  while (cells.length < n) {
+    cells.push({ seed: Math.random() * 6.28, sp: 0.6 + Math.random() * 0.9, jr: Math.random() });
+  }
+}
+function ensureSentinels(n) {
+  while (sentinels.length < n) {
+    sentinels.push({ edge: Math.random(), drift: Math.random() * 6.28, sp: 0.3 + Math.random() * 0.5 });
   }
 }
 
-/**
- * Bind the visualization to a canvas element.
- * @param {HTMLCanvasElement} canvasEl
- */
-export function mountColony(canvasEl) {
-  canvas = canvasEl || null;
-  ctx = canvas && canvas.getContext ? canvas.getContext("2d") : null;
-  if (ctx) {
-    // Clear to the surface color so the first frame is not a transparent void.
-    paintBackground();
-  }
+export function mountColony(canvas) {
+  if (!canvas || !canvas.getContext) return;
+  cv = canvas; ctx = canvas.getContext("2d");
+  palette = readPalette();
+  disp = { load: 10, lock: 0, host: 100, window: 0 };
+  cells = []; sentinels = [];
+  t0 = performance.now();
+  resize();
+  if (raf) cancelAnimationFrame(raf);
+  if (reduced()) { draw(0); return; }     // single static frame
+  const loop = (now) => { draw((now - t0) / 1000); raf = requestAnimationFrame(loop); };
+  raf = requestAnimationFrame(loop);
 }
 
-function paintBackground() {
-  if (!ctx || !canvas) return;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = token("--surface-2", "#eef2f6");
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-}
-
-/**
- * Redraw the colony for the current state.
- * @param {object} state  engine state (colony_load, immune_lockon, transmission_window)
- * @param {object} build  genome (used only for a subtle hue cue; no logic)
- */
 export function updateColony(state, build) {
-  if (!ctx || !canvas || !state) return;
-
-  const W = canvas.width;
-  const H = canvas.height;
-
-  paintBackground();
-
-  // --- soft window glow (drawn first, under the cells) ----------------------
-  if (state.transmission_window > 0) {
-    drawWindowGlow(W, H, state.transmission_window);
-  }
-
-  // --- colony cells ---------------------------------------------------------
-  // Cell count scales with load against the visible ceiling, capped so a huge
-  // colony stays legible. Clustered around centre with deterministic scatter.
-  const loadFrac = clamp01(state.colony_load / COL_VIS);
-  const cells = Math.round(6 + loadFrac * 90); // 6..~96 dots
-  drawColony(W, H, cells, state.colony_load);
-
-  // --- immune sentinels closing in -----------------------------------------
-  // More lock-on → more sentinels, drawn nearer the centre (the squeeze).
-  const lockFrac = clamp01(state.immune_lockon / 100);
-  const sentinels = Math.round(lockFrac * 14); // 0..14
-  drawSentinels(W, H, sentinels, lockFrac);
-}
-
-function drawWindowGlow(W, H, windowTurns) {
-  // A soft radial accent wash, brighter while more window turns remain.
-  const cx = W / 2;
-  const cy = H / 2;
-  const r = Math.max(W, H) * 0.6;
-  const alpha = 0.10 + 0.06 * Math.min(3, windowTurns);
-  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-  const accent = token("--accent", "#0ea5a5");
-  grad.addColorStop(0, withAlpha(accent, alpha));
-  grad.addColorStop(1, withAlpha(accent, 0));
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-}
-
-function drawColony(W, H, count, load) {
-  const cx = W / 2;
-  const cy = H / 2;
-  // Cluster radius grows gently with load so a fuller colony spreads out.
-  const spread = Math.min(W, H) * 0.42 * clamp01(0.3 + load / CARRY);
-  const rand = rng(0x57a1 ^ count); // stable layout for this cell count
-  const fill = token("--accent", "#0ea5a5");
-  const ring = token("--accent-soft", "#d7f2f0");
-
-  for (let i = 0; i < count; i++) {
-    // Gaussian-ish clustering via two uniform samples pulled toward centre.
-    const a = rand() * Math.PI * 2;
-    const rr = Math.pow(rand(), 0.6) * spread; // bias toward centre
-    const x = cx + Math.cos(a) * rr;
-    const y = cy + Math.sin(a) * rr * 0.62; // squashed so it reads as a colony mat
-    const dot = 2.4 + rand() * 1.8;
-
-    ctx.beginPath();
-    ctx.arc(x, y, dot + 1, 0, Math.PI * 2);
-    ctx.fillStyle = ring;
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(x, y, dot, 0, Math.PI * 2);
-    ctx.fillStyle = fill;
-    ctx.fill();
+  target = { state, build };
+  if (reduced()) {
+    disp = { load: state.colony_load, lock: state.immune_lockon, host: state.host_stability, window: state.transmission_window };
+    draw(0);
   }
 }
 
-function drawSentinels(W, H, count, lockFrac) {
-  if (count <= 0) return;
-  const cx = W / 2;
-  const cy = H / 2;
-  const danger = token("--danger", "#e5484d");
-  const warning = token("--warning", "#c8810a");
-  // Higher lock-on tints sentinels from warning toward danger and pulls them in.
-  const color = lockFrac >= 0.6 ? danger : warning;
-  const rand = rng(0xa11ce5 ^ (count * 2654435761));
+export function stopColony() {
+  if (raf) cancelAnimationFrame(raf);
+  raf = null; cv = null; ctx = null; target = null;
+}
 
-  // Sentinels ring the colony, edging inward as lock-on rises.
-  const ringR = Math.min(W, H) * (0.62 - 0.30 * lockFrac);
+function draw(time) {
+  if (!ctx || !cv) return;
+  const w = cv.clientWidth || 680, h = cv.clientHeight || 220;
+  const cx = w * 0.42, cy = h * 0.5;
 
-  for (let i = 0; i < count; i++) {
-    const a = (i / count) * Math.PI * 2 + rand() * 0.3;
-    const jitter = 0.85 + rand() * 0.3;
-    const x = cx + Math.cos(a) * ringR * jitter;
-    const y = cy + Math.sin(a) * ringR * jitter * 0.62;
+  if (target) {
+    const s = target.state;
+    disp.load = lerp(disp.load, s.colony_load, 0.08);
+    disp.lock = lerp(disp.lock, s.immune_lockon, 0.10);
+    disp.host = lerp(disp.host, s.host_stability, 0.10);
+    disp.window = s.transmission_window;
+  }
+  const alarm = Math.max(0, Math.min(1, disp.lock / 100));
 
-    // A small hollow chevron-ish marker: a stroked triangle pointing inward.
-    const size = 5;
-    const toC = Math.atan2(cy - y, cx - x);
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(toC);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = palette.surface2;
+  roundRect(ctx, 0, 0, w, h, 12); ctx.fill();
+  if (alarm > 0.02) {
+    ctx.fillStyle = rgba(palette.danger, 0.05 + alarm * 0.10);
+    roundRect(ctx, 0, 0, w, h, 12); ctx.fill();
+  }
+
+  const tint = mix(palette.accent, palette.danger, alarm * 0.65);
+
+  const n = Math.max(5, Math.min(70, Math.round(disp.load / 2.4)));
+  ensureCells(n);
+  const clusterR = 14 + Math.sqrt(n) * 7.2;
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, clusterR + 12, 0, 6.2832);
+  ctx.fillStyle = rgba(tint, 0.08);
+  ctx.fill();
+
+  for (let i = 0; i < n; i++) {
+    const c = cells[i];
+    const ang = i * GOLDEN;
+    const rad = clusterR * Math.sqrt(i / n);
+    const pulse = reduced() ? 0 : Math.sin(time * c.sp + c.seed) * 1.6;
+    const jx = reduced() ? 0 : Math.cos(time * 0.7 + c.seed) * (0.6 + c.jr);
+    const jy = reduced() ? 0 : Math.sin(time * 0.9 + c.seed) * (0.6 + c.jr);
+    const x = cx + Math.cos(ang) * rad + jx;
+    const y = cy + Math.sin(ang) * rad + jy;
+    const r = 3.4 + pulse;
     ctx.beginPath();
-    ctx.moveTo(size, 0);
-    ctx.lineTo(-size * 0.7, size * 0.7);
-    ctx.lineTo(-size * 0.7, -size * 0.7);
-    ctx.closePath();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.6;
+    ctx.arc(x, y, r, 0, 6.2832);
+    ctx.fillStyle = rgba(tint, 0.85);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, r + 1.2, 0, 6.2832);
+    ctx.strokeStyle = rgba(tint, 0.25);
+    ctx.lineWidth = 1;
     ctx.stroke();
-    ctx.restore();
+  }
+
+  const sn = Math.max(0, Math.min(6, Math.round(disp.lock / 17)));
+  ensureSentinels(sn);
+  for (let i = 0; i < sn; i++) {
+    const s = sentinels[i];
+    const baseAng = s.edge * 6.2832 + time * s.sp * 0.15;
+    const far = Math.max(w, h) * 0.52;
+    const near = clusterR + 26;
+    const d = lerp(far, near, 0.25 + alarm * 0.7) + (reduced() ? 0 : Math.sin(time * s.sp + s.drift) * 6);
+    const x = cx + Math.cos(baseAng) * d;
+    const y = cy + Math.sin(baseAng) * d * 0.7;
+    drawSentinel(x, y, baseAng + Math.PI, 5 + alarm * 2);
+  }
+
+  if (disp.window > 0) {
+    const gx = w - 14;
+    const glow = 0.45 + (reduced() ? 0 : Math.sin(time * 3) * 0.25);
+    const grad = ctx.createLinearGradient(gx - 40, 0, gx, 0);
+    grad.addColorStop(0, rgba(palette.success, 0));
+    grad.addColorStop(1, rgba(palette.success, 0.22 * glow + 0.12));
+    ctx.fillStyle = grad;
+    ctx.fillRect(gx - 40, 8, 40, h - 16);
+    ctx.strokeStyle = rgba(palette.success, 0.55 + glow * 0.25);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(gx - 3, 14); ctx.lineTo(gx - 3, h - 14);
+    ctx.stroke();
   }
 }
 
-// --- small color helpers ----------------------------------------------------
-
-function clamp01(x) {
-  return Math.max(0, Math.min(1, x));
+function drawSentinel(x, y, rot, size) {
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(rot);
+  ctx.strokeStyle = rgba(palette.warning, 0.85);
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(-size, -size); ctx.lineTo(size, 0); ctx.lineTo(-size, size);
+  ctx.stroke();
+  ctx.restore();
 }
 
-// Apply an alpha to a hex color (#rgb / #rrggbb) → rgba(). Non-hex passes through
-// with a leading rgba() best-effort; falls back to the accent on any failure.
-function withAlpha(color, alpha) {
-  const a = Math.max(0, Math.min(1, alpha));
-  const hex = parseHex(color);
-  if (!hex) return color;
-  return `rgba(${hex.r}, ${hex.g}, ${hex.b}, ${a})`;
-}
-
-function parseHex(color) {
-  if (typeof color !== "string") return null;
-  let c = color.trim();
-  if (c[0] !== "#") return null;
-  c = c.slice(1);
-  if (c.length === 3) {
-    c = c.split("").map((ch) => ch + ch).join("");
-  }
-  if (c.length !== 6) return null;
-  const num = parseInt(c, 16);
-  if (Number.isNaN(num)) return null;
-  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
 }
