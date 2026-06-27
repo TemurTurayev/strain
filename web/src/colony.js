@@ -1,87 +1,102 @@
-// colony.js — living, watchable colony simulation on a canvas.
+// colony.js — a living, watchable microbe-simulation viewport (dark, atmospheric).
 //   mountColony(canvas)        start the render loop
 //   updateColony(state, build) feed the latest game state (display eases toward it)
-//   pulse(kind, mag)           play a per-turn beat: "damage" | "grow" | "window" | "immune"
-//   playEnding(kind, onDone)   animate the finale: "win" | "cleared" | "timeout" | "host"
-//   stopColony()               cancel the loop (call when leaving the play screen)
+//   pulse(kind, mag)           per-turn beat: "damage" | "grow" | "window" | "immune"
+//   playEnding(kind, onDone)   finale: "win" | "cleared" | "timeout" | "host"
+//   fixation()                 0..1 immune-fixation pressure (for the UI readout)
+//   stopColony()               cancel the loop (call when leaving play)
 //
-// Pure presentation. Reads palette tokens from CSS. Honors prefers-reduced-motion.
+// The viewport is intentionally dark (a microscope view) while the dashboard around
+// it stays light. Layered: offscreen tissue+capillaries+noise -> cells -> immune ->
+// particles -> fixation ring -> vignette. Honors prefers-reduced-motion.
+
+import { MAX_TURNS } from "./engine.js";
 
 const GOLDEN = 2.399963229;
 
-let cv = null, ctx = null, raf = null, dpr = 1;
+let cv = null, ctx = null, raf = null, dpr = 1, W = 680, H = 220;
+let bgCanvas = null;            // cached static background
 let target = null;
-let disp = { load: 10, lock: 0, host: 100, window: 0 };
-let cells = [];          // { seed, sp, jr, nuc }
-let sentinels = [];      // { edge, drift, sp, lungeT0 }
-let particles = [];      // transient FX
-let damageFlashT0 = -9;
-let ending = null;       // { kind, t0, onDone, done }
-let palette = null;
-let bg = null;           // cached tissue blobs
+let disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0 };
+let cells = [];                 // { seed, sp, jr, nuc, bornAt, dmgT }
+let immune = [];                // { x, y, vx, vy, phase, sp, lungeT, trail }
+let particles = [];
+let damageFlashT = -9, shakeT = -9;
+let ending = null;
 let t0 = 0;
 
-function reduced() {
-  try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
-}
+function reduced() { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } }
 function now() { return performance.now() / 1000; }
-
-function hexToRgb(hex) {
-  const m = (hex || "").trim().replace("#", "");
-  if (m.length < 6) return [120, 120, 120];
-  return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)];
-}
-function readPalette() {
-  const cs = getComputedStyle(document.documentElement);
-  const g = (n) => cs.getPropertyValue(n);
-  return {
-    accent: hexToRgb(g("--accent")), danger: hexToRgb(g("--danger")),
-    warning: hexToRgb(g("--warning")), success: hexToRgb(g("--success")),
-    surface2: (g("--surface-2") || "#eef2f6").trim(),
-    muted: hexToRgb(g("--text-muted")),
-  };
-}
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function lerp(a, b, k) { return a + (b - a) * k; }
-function mix(c1, c2, k) { return [lerp(c1[0], c2[0], k), lerp(c1[1], c2[1], k), lerp(c1[2], c2[2], k)]; }
-function rgba(c, a) { return `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`; }
+function easeIO(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+
+export function fixation() {
+  // How close the host is to forcing you out: time pressure + how well it knows you.
+  return clamp(0.55 * (disp.turn / MAX_TURNS) + 0.6 * (disp.lock / 100), 0, 1);
+}
 
 function resize() {
   if (!cv || !ctx) return;
   dpr = Math.min(2, window.devicePixelRatio || 1);
-  const w = cv.clientWidth || 680, h = cv.clientHeight || 220;
-  cv.width = Math.round(w * dpr);
-  cv.height = Math.round(h * dpr);
+  W = cv.clientWidth || 680; H = cv.clientHeight || 220;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  buildBg(w, h);
+  buildBackground();
 }
-function buildBg(w, h) {
-  bg = [];
-  for (let i = 0; i < 7; i++) {
-    bg.push({ x: Math.random() * w, y: Math.random() * h, r: 40 + Math.random() * 70 });
+
+function buildBackground() {
+  bgCanvas = document.createElement("canvas");
+  bgCanvas.width = Math.round(W * dpr); bgCanvas.height = Math.round(H * dpr);
+  const b = bgCanvas.getContext("2d");
+  b.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // deep tissue gradient
+  const g = b.createRadialGradient(W * 0.42, H * 0.5, 40, W * 0.5, H * 0.5, W * 0.85);
+  g.addColorStop(0, "#1a2730"); g.addColorStop(0.55, "#221a2b"); g.addColorStop(1, "#0a0c11");
+  b.fillStyle = g; b.fillRect(0, 0, W, H);
+  // capillaries (generated once)
+  for (let i = 0; i < 11; i++) {
+    const y = Math.random() * H;
+    b.beginPath();
+    b.moveTo(-20, y);
+    b.bezierCurveTo(W * 0.3, y + (Math.random() - 0.5) * 120, W * 0.6, y + (Math.random() - 0.5) * 120, W + 20, y + (Math.random() - 0.5) * 80);
+    b.strokeStyle = `rgba(150,52,70,${0.05 + Math.random() * 0.06})`;
+    b.lineWidth = 2 + Math.random() * 6;
+    b.stroke();
+  }
+  // cheap noise speckle
+  for (let i = 0; i < 380; i++) {
+    b.fillStyle = `rgba(255,255,255,${Math.random() * 0.025})`;
+    b.fillRect(Math.random() * W, Math.random() * H, 1, 1);
   }
 }
 
 function ensureCells(n) {
   while (cells.length < n) {
-    cells.push({ seed: Math.random() * 6.28, sp: 0.6 + Math.random() * 0.9, jr: Math.random(), nuc: Math.random() * 6.28 });
+    cells.push({ seed: Math.random() * 6.28, sp: 0.5 + Math.random() * 0.9, jr: Math.random(), nuc: Math.random() * 6.28, bornAt: now(), dmgT: -9 });
   }
 }
-function ensureSentinels(n) {
-  while (sentinels.length < n) {
-    sentinels.push({ edge: Math.random(), drift: Math.random() * 6.28, sp: 0.3 + Math.random() * 0.5, lungeT0: -9 });
+function syncImmune(count) {
+  while (immune.length < count) {
+    const edge = Math.random();
+    immune.push({ x: Math.random() * W, y: Math.random() * H, vx: 0, vy: 0, phase: Math.random() * 6.28, sp: 0.5 + Math.random() * 0.6, lungeT: -9, trail: [], edge });
   }
+  while (immune.length > count) immune.pop();
 }
 
 export function mountColony(canvas) {
   if (!canvas || !canvas.getContext) return;
   cv = canvas; ctx = canvas.getContext("2d");
-  palette = readPalette();
-  disp = { load: 10, lock: 0, host: 100, window: 0 };
-  cells = []; sentinels = []; particles = []; ending = null; damageFlashT0 = -9;
+  disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0 };
+  cells = []; immune = []; particles = []; ending = null; damageFlashT = -9; shakeT = -9;
   t0 = performance.now();
   resize();
+  startLoop();
+  if (reduced()) draw(0);
+}
+function startLoop() {
   if (raf) cancelAnimationFrame(raf);
-  if (reduced()) { draw(0); return; }
+  if (reduced()) return;
   const loop = (ts) => { draw((ts - t0) / 1000); raf = cv ? requestAnimationFrame(loop) : null; };
   raf = requestAnimationFrame(loop);
 }
@@ -89,230 +104,264 @@ export function mountColony(canvas) {
 export function updateColony(state, build) {
   target = { state, build };
   if (reduced()) {
-    disp = { load: state.colony_load, lock: state.immune_lockon, host: state.host_stability, window: state.transmission_window };
+    disp = { load: state.colony_load, lock: state.immune_lockon, host: state.host_stability, window: state.transmission_window, turn: state.turn };
     draw(0);
   }
 }
 
-// A per-turn beat. kind: "damage" | "grow" | "window" | "immune".
 export function pulse(kind, mag = 1) {
   if (reduced() || !cv) return;
-  const w = cv.clientWidth || 680, h = cv.clientHeight || 220;
-  const cx = w * 0.42, cy = h * 0.5;
+  const cx = W * 0.42, cy = H * 0.5;
   if (kind === "damage") {
-    damageFlashT0 = now();
-    const k = Math.max(2, Math.min(14, Math.round(mag)));
-    for (let i = 0; i < k; i++) spawnParticle(cx, cy, palette.danger, 26 + Math.random() * 22, 0.9);
-    for (const s of sentinels) s.lungeT0 = now(); // immune cells strike inward
+    damageFlashT = now(); shakeT = now();
+    const k = clamp(Math.round(mag), 2, 14);
+    for (let i = 0; i < k; i++) {
+      const a = Math.random() * 6.28, d = 10 + Math.random() * 30;
+      spawnParticle(cx + Math.cos(a) * d, cy + Math.sin(a) * d, "rgba(255,150,150,", 24 + Math.random() * 24, 0.8);
+    }
+    for (const im of immune) im.lungeT = now();
+    for (let i = 0; i < Math.min(cells.length, k); i++) {
+      const idx = (Math.random() * cells.length) | 0; if (cells[idx]) cells[idx].dmgT = now();
+    }
   } else if (kind === "grow") {
-    const k = Math.max(2, Math.min(10, Math.round(mag / 4)));
-    for (let i = 0; i < k; i++) spawnParticle(cx, cy, palette.accent, 14 + Math.random() * 14, 0.7);
+    const k = clamp(Math.round(mag / 4), 1, 8);
+    for (const c of cells) if (now() - c.bornAt < 0.05) c.bornAt = now();
+    for (let i = 0; i < k; i++) spawnParticle(cx, cy, "rgba(140,240,200,", 12 + Math.random() * 12, 0.6);
   } else if (kind === "window") {
-    for (let i = 0; i < 10; i++) spawnParticle(w - 16, cy + (Math.random() - 0.5) * h * 0.5, palette.success, 18, 0.8);
+    for (let i = 0; i < 12; i++) spawnParticle(W - 16, cy + (Math.random() - 0.5) * H * 0.5, "rgba(120,240,200,", 16, 0.8);
   } else if (kind === "immune") {
-    for (const s of sentinels) s.lungeT0 = now();
+    for (const im of immune) im.lungeT = now();
   }
 }
 
-function spawnParticle(x, y, color, speed, life) {
-  if (particles.length > 160) return;
+function spawnParticle(x, y, colorPrefix, speed, life) {
+  if (particles.length > 170) return;
   const a = Math.random() * 6.2832;
-  particles.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, color, t0: now(), life });
+  particles.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, cp: colorPrefix, t0: now(), life });
 }
 
-// Animate the finale, then call onDone once.
 export function playEnding(kind, onDone) {
   if (reduced()) { if (onDone) onDone(); return; }
   ending = { kind, t0: now(), onDone, done: false };
-  if (!raf && cv) { // ensure the loop is alive
-    t0 = performance.now();
-    const loop = (ts) => { draw((ts - t0) / 1000); raf = cv ? requestAnimationFrame(loop) : null; };
-    raf = requestAnimationFrame(loop);
-  }
+  if (!raf && cv) { t0 = performance.now(); startLoop(); }
 }
 
 export function stopColony() {
   if (raf) cancelAnimationFrame(raf);
-  raf = null; cv = null; ctx = null; target = null; ending = null; particles = [];
+  raf = null; cv = null; ctx = null; target = null; ending = null; particles = []; immune = [];
 }
 
 function draw(time) {
   if (!ctx || !cv) return;
-  const w = cv.clientWidth || 680, h = cv.clientHeight || 220;
-  const cx = w * 0.42, cy = h * 0.5;
+  const cx = W * 0.42, cy = H * 0.5;
 
   if (target && !ending) {
     const s = target.state;
     disp.load = lerp(disp.load, s.colony_load, 0.08);
     disp.lock = lerp(disp.lock, s.immune_lockon, 0.10);
     disp.host = lerp(disp.host, s.host_stability, 0.10);
-    disp.window = s.transmission_window;
+    disp.window = s.transmission_window; disp.turn = s.turn;
   }
 
-  // Ending progress (0..1) drives the finale transforms.
   let ep = 0;
   if (ending) {
-    ep = Math.min(1, (now() - ending.t0) / 2.6);
-    if (ep >= 1 && !ending.done) {
-      ending.done = true;
-      const cb = ending.onDone; ending = null;
-      if (cb) cb();
-      return;
-    }
+    const dur = ending.kind === "win" ? 2.6 : ending.kind === "host" ? 3.0 : 2.8;
+    ep = Math.min(1, (now() - ending.t0) / dur);
+    if (ep >= 1 && !ending.done) { ending.done = true; const cb = ending.onDone; ending = null; if (cb) cb(); return; }
   }
-  const alarm = Math.max(0, Math.min(1, disp.lock / 100));
 
-  // ---- background: tissue + vignette --------------------------------------
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = palette.surface2;
-  roundRect(ctx, 0, 0, w, h, 12); ctx.fill();
+  const alarm = clamp(disp.lock / 100, 0, 1);
+  const fix = fixation();
+
+  // screen shake
+  let sx = 0, sy = 0;
+  if (now() - shakeT < 0.18) { const k = 1 - (now() - shakeT) / 0.18; sx = (Math.random() - 0.5) * 4 * k; sy = (Math.random() - 0.5) * 4 * k; }
+  ctx.save(); ctx.translate(sx, sy);
+
+  // layer 1: cached background
+  if (bgCanvas) ctx.drawImage(bgCanvas, 0, 0, W, H);
   ctx.save();
-  roundRect(ctx, 0, 0, w, h, 12); ctx.clip();
-  if (bg) for (const b of bg) {
-    const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
-    g.addColorStop(0, rgba(palette.muted, 0.05));
-    g.addColorStop(1, rgba(palette.muted, 0));
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 6.2832); ctx.fill();
-  }
-  // alarm wash + damage flash + ending tints
-  let washA = 0.04 + alarm * 0.12;
-  if (ending && (ending.kind === "cleared" || ending.kind === "host")) washA += ep * 0.25;
-  ctx.fillStyle = rgba(palette.danger, washA);
-  ctx.fillRect(0, 0, w, h);
-  if (now() - damageFlashT0 < 0.32) {
-    ctx.fillStyle = rgba(palette.danger, 0.18 * (1 - (now() - damageFlashT0) / 0.32));
-    ctx.fillRect(0, 0, w, h);
-  }
-  if (ending && ending.kind === "win") {
-    ctx.fillStyle = rgba(palette.success, ep * 0.18);
-    ctx.fillRect(0, 0, w, h);
-  }
-  // vignette
-  const vg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.7);
-  vg.addColorStop(0, "rgba(0,0,0,0)");
-  vg.addColorStop(1, "rgba(20,30,40,0.10)");
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
-  ctx.restore();
+  roundRectPath(ctx, 0, 0, W, H, 12); ctx.clip();
 
-  const tint = mix(palette.accent, palette.danger, alarm * 0.65);
+  // alarm + flashes + ending tints
+  let red = 0.05 + alarm * 0.16;
+  if (ending && (ending.kind === "cleared" || ending.kind === "host")) red += ep * 0.3;
+  ctx.fillStyle = `rgba(200,40,46,${red})`; ctx.fillRect(0, 0, W, H);
+  if (now() - damageFlashT < 0.3) { ctx.fillStyle = `rgba(255,80,80,${0.16 * (1 - (now() - damageFlashT) / 0.3)})`; ctx.fillRect(0, 0, W, H); }
+  if (ending && ending.kind === "win") { ctx.fillStyle = `rgba(60,210,160,${ep * 0.16})`; ctx.fillRect(0, 0, W, H); }
+  if (ending && ending.kind === "host") { ctx.fillStyle = `rgba(10,12,16,${ep * 0.5})`; ctx.fillRect(0, 0, W, H); }
 
   // ---- colony cells -------------------------------------------------------
-  // During a "cleared/timeout/host" ending the colony shrinks to nothing.
   let loadForCount = disp.load;
   if (ending && ending.kind !== "win") loadForCount = disp.load * (1 - ep);
-  const n = Math.max(ending ? 0 : 4, Math.min(70, Math.round(loadForCount / 2.4)));
-  ensureCells(Math.max(n, 1));
-  const clusterR = 14 + Math.sqrt(Math.max(1, n)) * 7.2;
+  const n = clamp(Math.round(loadForCount / 2.3), ending ? 0 : 4, 64);
+  ensureCells(Math.max(1, n));
+  const clusterR = 12 + Math.sqrt(Math.max(1, n)) * 7.0;
 
-  ctx.beginPath();
-  ctx.arc(cx, cy, clusterR + 12, 0, 6.2832);
-  ctx.fillStyle = rgba(tint, 0.08 * (ending ? 1 - ep * 0.7 : 1));
-  ctx.fill();
-
+  // biofilm web between near cells (draw first, behind cells)
+  ctx.strokeStyle = "rgba(120,230,190,0.10)"; ctx.lineWidth = 1;
+  const pts = [];
   for (let i = 0; i < n; i++) {
+    const ang = i * GOLDEN, rad = clusterR * Math.sqrt(i / Math.max(1, n));
+    let x = cx + Math.cos(ang) * rad, y = cy + Math.sin(ang) * rad;
     const c = cells[i];
-    const ang = i * GOLDEN;
-    let rad = clusterR * Math.sqrt(i / Math.max(1, n));
-    const pulseR = reduced() ? 0 : Math.sin(time * c.sp + c.seed) * 1.6;
-    let x = cx + Math.cos(ang) * rad;
-    let y = cy + Math.sin(ang) * rad;
-    if (!reduced()) { x += Math.cos(time * 0.7 + c.seed) * (0.6 + c.jr); y += Math.sin(time * 0.9 + c.seed) * (0.6 + c.jr); }
-    let alpha = 0.9;
+    if (!reduced()) { x += Math.cos(time * 0.6 + c.seed) * (0.6 + c.jr); y += Math.sin(time * 0.8 + c.seed) * (0.6 + c.jr); }
     if (ending) {
-      if (ending.kind === "win") { x += ep * (w - cx) * (0.5 + c.jr * 0.8); alpha = 1 - ep * 0.8; }
-      else if (ending.kind === "timeout") { x += ep * (w + 40 - x); alpha = 1 - ep; }
-      else { // cleared / host: scatter + die
-        x += Math.cos(ang) * ep * 70 * (0.5 + c.jr);
-        y += Math.sin(ang) * ep * 70 * (0.5 + c.jr);
-        alpha = 1 - ep;
-      }
+      if (ending.kind === "win") x += ep * (W - cx) * (0.5 + c.jr * 0.8);
+      else if (ending.kind === "timeout") x += easeIO(ep) * (W + 50 - x);
+      else { x += Math.cos(ang) * ep * 80 * (0.5 + c.jr); y += Math.sin(ang) * ep * 80 * (0.5 + c.jr); }
     }
-    drawCell(x, y, 3.6 + pulseR, tint, alpha, c.nuc + time * 0.5);
+    pts.push({ x, y, c });
+  }
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < Math.min(pts.length, i + 4); j++) {
+      const dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y, d = Math.hypot(dx, dy);
+      if (d < 26) { ctx.globalAlpha = (1 - d / 26) * 0.5; ctx.beginPath(); ctx.moveTo(pts[i].x, pts[i].y); ctx.lineTo(pts[j].x, pts[j].y); ctx.stroke(); }
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  for (let i = 0; i < pts.length; i++) {
+    const { x, y, c } = pts[i];
+    const grow = clamp((now() - c.bornAt) / 0.5, 0, 1);
+    const pulseR = reduced() ? 0 : Math.sin(time * c.sp + c.seed) * 0.7;
+    let alpha = ending ? (ending.kind === "win" || ending.kind === "timeout" ? 1 - ep : 1 - ep) : 1;
+    drawCell(x, y, (3.4 + pulseR) * (0.4 + 0.6 * grow), c, alpha, time);
   }
 
-  // ---- immune sentinels (hunt + lunge) -----------------------------------
-  let sn = Math.max(0, Math.min(6, Math.round(disp.lock / 17)));
-  if (ending && (ending.kind === "cleared" || ending.kind === "host")) sn = Math.min(7, sn + Math.round(ep * 4));
-  ensureSentinels(sn);
-  for (let i = 0; i < sn; i++) {
-    const s = sentinels[i];
-    const baseAng = s.edge * 6.2832 + time * s.sp * 0.15;
-    const far = Math.max(w, h) * 0.52;
-    const near = clusterR + 22;
-    let prox = 0.25 + alarm * 0.7;
-    if (ending && (ending.kind === "cleared" || ending.kind === "host")) prox = Math.min(1, prox + ep);
-    // lunge: brief dart inward
-    const lt = now() - s.lungeT0;
-    const lunge = lt >= 0 && lt < 0.5 ? Math.sin(lt / 0.5 * Math.PI) * 0.35 : 0;
-    const d = lerp(far, near, Math.min(1, prox + lunge)) + (reduced() ? 0 : Math.sin(time * s.sp + s.drift) * 5);
-    const x = cx + Math.cos(baseAng) * d;
-    const y = cy + Math.sin(baseAng) * d * 0.72;
-    drawSentinel(x, y, Math.atan2(cy - y, cx - x), 6 + alarm * 2 + lunge * 6, time + s.drift);
+  // ---- immune cells -------------------------------------------------------
+  let icount = Math.round(lerp(0, 16, Math.max(alarm, fix * 0.8)));
+  if (ending && (ending.kind === "cleared" || ending.kind === "host")) icount = Math.round(lerp(icount, 22, ep));
+  syncImmune(clamp(icount, 0, 22));
+  for (const im of immune) updateImmune(im, cx, cy, clusterR, alarm, fix, ending, ep, time);
+
+  // ---- transmission window ------------------------------------------------
+  if (disp.window > 0 || (ending && ending.kind === "win")) drawWindow(cx, cy, ending, ep, time);
+
+  // ---- fixation ring (the immune closing in) ------------------------------
+  if (fix > 0.25 && !ending) {
+    const ringR = lerp(Math.max(W, H) * 0.5, clusterR + 30, fix) + Math.sin(time * 2) * 3;
+    ctx.strokeStyle = `rgba(255,255,255,${0.06 + fix * 0.18})`;
+    ctx.lineWidth = 1.5; ctx.setLineDash([6, 8]); ctx.lineDashOffset = -time * 14;
+    ctx.beginPath(); ctx.arc(cx, cy, ringR, 0, 6.2832); ctx.stroke(); ctx.setLineDash([]);
   }
 
-  // ---- transmission window gateway ---------------------------------------
-  const winOpen = (disp.window > 0) || (ending && ending.kind === "win");
-  if (winOpen) {
-    const gx = w - 14;
-    const glow = 0.5 + (reduced() ? 0 : Math.sin(time * 3) * 0.25) + (ending && ending.kind === "win" ? ep * 0.5 : 0);
-    const grad = ctx.createLinearGradient(gx - 48, 0, gx, 0);
-    grad.addColorStop(0, rgba(palette.success, 0));
-    grad.addColorStop(1, rgba(palette.success, 0.16 + 0.22 * glow));
-    ctx.fillStyle = grad;
-    ctx.fillRect(gx - 48, 8, 48, h - 16);
-    ctx.strokeStyle = rgba(palette.success, 0.6 + glow * 0.3);
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(gx - 3, 14); ctx.lineTo(gx - 3, h - 14); ctx.stroke();
-  }
-
-  // ---- particles ----------------------------------------------------------
   drawParticles();
-}
+  // vignette
+  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.28, W / 2, H / 2, Math.max(W, H) * 0.72);
+  vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,0.35)");
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
 
-function drawCell(x, y, r, tint, alpha, nucPhase) {
-  // cytoplasm body
-  ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832);
-  ctx.fillStyle = rgba(tint, 0.85 * alpha); ctx.fill();
-  // membrane ring
-  ctx.beginPath(); ctx.arc(x, y, r + 1.1, 0, 6.2832);
-  ctx.strokeStyle = rgba(tint, 0.28 * alpha); ctx.lineWidth = 1; ctx.stroke();
-  // nucleus
-  ctx.beginPath();
-  ctx.arc(x + Math.cos(nucPhase) * r * 0.25, y + Math.sin(nucPhase) * r * 0.25, r * 0.42, 0, 6.2832);
-  ctx.fillStyle = rgba([255, 255, 255], 0.45 * alpha); ctx.fill();
-}
+  // host-death flatline
+  if (ending && ending.kind === "host" && ep > 0.55) drawFlatline(ep);
 
-function drawSentinel(x, y, rot, size, t) {
-  // an antibody-ish hunter: Y body with drifting pseudopod tips
-  ctx.save();
-  ctx.translate(x, y); ctx.rotate(rot);
-  ctx.strokeStyle = rgba(palette.warning, 0.9);
-  ctx.lineWidth = 1.8; ctx.lineCap = "round";
-  const wob = Math.sin(t * 2) * 1.2;
-  ctx.beginPath();
-  ctx.moveTo(-size, -size + wob); ctx.lineTo(0, 0); ctx.lineTo(-size, size - wob);
-  ctx.moveTo(0, 0); ctx.lineTo(size * 0.9, 0);
-  ctx.stroke();
-  ctx.beginPath(); ctx.arc(0, 0, 2, 0, 6.2832);
-  ctx.fillStyle = rgba(palette.warning, 0.9); ctx.fill();
   ctx.restore();
+  ctx.restore();
+}
+
+function drawCell(x, y, r, c, alpha, time) {
+  const damaged = now() - c.dmgT < 0.45;
+  // glow
+  const glow = ctx.createRadialGradient(x, y, r * 0.2, x, y, r * 2.4);
+  glow.addColorStop(0, `rgba(75,220,170,${0.20 * alpha})`); glow.addColorStop(1, "rgba(75,220,170,0)");
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, r * 2.4, 0, 6.2832); ctx.fill();
+  // body
+  const body = ctx.createRadialGradient(x - r * 0.3, y - r * 0.4, r * 0.2, x, y, r);
+  body.addColorStop(0, `rgba(143,240,200,${alpha})`); body.addColorStop(0.65, `rgba(43,169,128,${alpha})`); body.addColorStop(1, `rgba(17,97,79,${alpha})`);
+  ctx.fillStyle = body; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
+  // membrane
+  ctx.strokeStyle = damaged ? `rgba(255,120,120,${0.9 * alpha})` : `rgba(180,255,225,${0.7 * alpha})`;
+  ctx.lineWidth = 1.2; ctx.stroke();
+  // nucleus
+  ctx.fillStyle = `rgba(18,64,58,${0.6 * alpha})`;
+  ctx.beginPath(); ctx.arc(x + Math.cos(c.nuc) * r * 0.25, y + Math.sin(c.nuc) * r * 0.2, r * 0.34, 0, 6.2832); ctx.fill();
+}
+
+function updateImmune(im, cx, cy, clusterR, alarm, fix, ending, ep, time) {
+  // target: a jittered point near the colony
+  const tx = cx + Math.cos(time * 0.5 + im.phase) * clusterR * 0.6;
+  const ty = cy + Math.sin(time * 0.6 + im.phase) * clusterR * 0.6;
+  let seek = 0.012 + alarm * 0.02;
+  if (ending && (ending.kind === "cleared" || ending.kind === "host")) seek += ep * 0.06;
+  im.vx += (tx - im.x) * seek + Math.cos(time + im.phase) * 0.12;
+  im.vy += (ty - im.y) * seek + Math.sin(time * 1.1 + im.phase) * 0.12;
+  // lunge
+  const lt = now() - im.lungeT;
+  if (lt >= 0 && lt < 0.5) { const k = Math.sin(lt / 0.5 * Math.PI); im.x += (tx - im.x) * 0.10 * k; im.y += (ty - im.y) * 0.10 * k; }
+  im.vx *= 0.86; im.vy *= 0.86;
+  im.x += im.vx; im.y += im.vy;
+  // trail
+  im.trail.push([im.x, im.y]); if (im.trail.length > 6) im.trail.shift();
+  for (let i = 0; i < im.trail.length; i++) {
+    const a = (i / im.trail.length) * 0.12;
+    ctx.beginPath(); ctx.arc(im.trail[i][0], im.trail[i][1], 5, 0, 6.2832);
+    ctx.fillStyle = `rgba(210,240,255,${a})`; ctx.fill();
+  }
+  drawImmune(im, 6 + alarm * 2, time, Math.atan2(cy - im.y, cx - im.x));
+}
+
+function drawImmune(im, r, t, rot) {
+  ctx.save(); ctx.translate(im.x, im.y);
+  // blobby wobbly body
+  ctx.beginPath();
+  const pts = 14;
+  for (let i = 0; i <= pts; i++) {
+    const a = i / pts * 6.2832;
+    const wob = 1 + Math.sin(a * 3 + t * 1.5 + im.phase) * 0.10 + Math.sin(a * 7 - t) * 0.05;
+    const rr = r * wob, x = Math.cos(a) * rr, y = Math.sin(a) * rr;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "rgba(216,240,255,0.80)"; ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1; ctx.stroke();
+  // a couple of pseudopods toward the colony
+  ctx.rotate(rot);
+  ctx.strokeStyle = "rgba(216,240,255,0.55)"; ctx.lineWidth = 1.4;
+  for (let k = -1; k <= 1; k += 2) {
+    ctx.beginPath(); ctx.moveTo(0, k * r * 0.4);
+    ctx.quadraticCurveTo(r * 1.2, k * r * 0.2, r * 1.8 + Math.sin(t * 3 + k) * 2, 0);
+    ctx.stroke();
+  }
+  // dark nucleus
+  ctx.rotate(-rot);
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.4, 0, 6.2832); ctx.fillStyle = "rgba(70,110,140,0.6)"; ctx.fill();
+  ctx.restore();
+}
+
+function drawWindow(cx, cy, ending, ep, time) {
+  const gx = W - 12;
+  const glow = 0.5 + Math.sin(time * 3) * 0.22 + (ending && ending.kind === "win" ? ep * 0.6 : 0);
+  const grad = ctx.createLinearGradient(gx - 56, 0, gx, 0);
+  grad.addColorStop(0, "rgba(75,220,170,0)"); grad.addColorStop(1, `rgba(75,220,170,${0.14 + 0.22 * glow})`);
+  ctx.fillStyle = grad; ctx.fillRect(gx - 56, 6, 56, H - 12);
+  ctx.strokeStyle = `rgba(120,240,200,${0.6 + glow * 0.3})`; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(gx - 3, 12); ctx.lineTo(gx - 3, H - 12); ctx.stroke();
+}
+
+function drawFlatline(ep) {
+  const y = H * 0.5, prog = clamp((ep - 0.55) / 0.45, 0, 1), x = prog * W;
+  ctx.strokeStyle = "rgba(120,255,180,0.7)"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(0, y);
+  for (let i = 0; i < x; i += 4) {
+    let yy = y;
+    if (i > x - 40 && i < x - 20) yy = y - 22 * Math.sin((i - (x - 40)) / 20 * Math.PI);
+    ctx.lineTo(i, yy);
+  }
+  ctx.stroke();
 }
 
 function drawParticles() {
   const t = now();
   for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    const age = t - p.t0;
+    const p = particles[i]; const age = t - p.t0;
     if (age > p.life) { particles.splice(i, 1); continue; }
-    const k = age / p.life;
-    const x = p.x + p.vx * age, y = p.y + p.vy * age;
-    ctx.beginPath(); ctx.arc(x, y, 2.6 * (1 - k), 0, 6.2832);
-    ctx.fillStyle = rgba(p.color, 0.8 * (1 - k)); ctx.fill();
+    const k = age / p.life, x = p.x + p.vx * age, y = p.y + p.vy * age;
+    ctx.beginPath(); ctx.arc(x, y, 2.4 * (1 - k), 0, 6.2832);
+    ctx.fillStyle = p.cp + (0.8 * (1 - k)) + ")"; ctx.fill();
   }
 }
 
-function roundRect(c, x, y, w, h, r) {
+function roundRectPath(c, x, y, w, h, r) {
   c.beginPath(); c.moveTo(x + r, y);
   c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
   c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();

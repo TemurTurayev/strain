@@ -74,6 +74,8 @@ const els = {
   valLock: $("val-lock"),
   windowPill: $("window-pill"),
   valInfl: $("val-infl"),
+  fixation: $("fixation"),
+  fixationFill: $("fixation-fill"),
   // play body
   canvas: $("colony-canvas"),
   hint: $("hint"),
@@ -371,6 +373,17 @@ function render() {
 
   // Inflammation readout.
   countUp(els.valInfl, state.inflammation, { decimals: 1 });
+
+  // Immune fixation — the real clock: time pressure + how well it knows you.
+  const fix = clampPct(
+    (0.55 * (state.turn / MAX_TURNS) + 0.6 * (state.immune_lockon / 100)) * 100
+  );
+  if (els.fixationFill) {
+    els.fixationFill.style.width = fix + "%";
+    els.fixationFill.style.background =
+      fix >= 75 ? "var(--danger)" : fix >= 45 ? "var(--warning)" : "var(--accent)";
+  }
+  if (els.fixation) els.fixation.textContent = Math.round(fix) + "%";
 
   // Window pill (glow when open; success-tinted when a transmit would land).
   renderWindowPill();
