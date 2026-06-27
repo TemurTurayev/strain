@@ -27,16 +27,16 @@ import {
   applyMutation,
 } from "./engine.js";
 
-import { mountBuildScreen } from "./genome.js";
-import { offerMutations, mountMutationModal } from "./mutations.js";
-import { mountColony, updateColony, stopColony, pulse, playEnding } from "./colony.js";
-import { flash, shake, popNumber } from "./juice.js";
-import { hint } from "./hints.js";
-import { buildAutopsy, renderAutopsy } from "./autopsy.js";
-import { saveRun, bestTransmissionTurn } from "./history.js";
-import { initAudio, play, setMuted, isMuted } from "./audio.js";
-import { countUp, burst } from "./fx.js";
-import { isFirstVisit, markSeen, openHowTo, closeHowTo } from "./tutorial.js";
+import { mountBuildScreen } from "./genome.js?v=2";
+import { offerMutations, mountMutationModal } from "./mutations.js?v=2";
+import { mountColony, updateColony, stopColony, pulse, playEnding } from "./colony.js?v=2";
+import { flash, shake, popNumber } from "./juice.js?v=2";
+import { hint } from "./hints.js?v=2";
+import { buildAutopsy, renderAutopsy } from "./autopsy.js?v=2";
+import { saveRun, bestTransmissionTurn } from "./history.js?v=2";
+import { initAudio, play, setMuted, isMuted } from "./audio.js?v=2";
+import { countUp, burst } from "./fx.js?v=2";
+import { isFirstVisit, markSeen, openHowTo, closeHowTo } from "./tutorial.js?v=2";
 
 // ----------------------------------------------------------------------------
 // DOM lookups (per §DOM contract)
@@ -374,10 +374,9 @@ function render() {
   // Inflammation readout.
   countUp(els.valInfl, state.inflammation, { decimals: 1 });
 
-  // Immune fixation — the real clock: time pressure + how well it knows you.
-  const fix = clampPct(
-    (0.55 * (state.turn / MAX_TURNS) + 0.6 * (state.immune_lockon / 100)) * 100
-  );
+  // Immune fixation — the real clock. Fills one notch per turn and hits exactly
+  // 100% on the turn the host corners you, so the bar never lies.
+  const fix = clampPct((state.turn / MAX_TURNS) * 100);
   if (els.fixationFill) {
     els.fixationFill.style.width = fix + "%";
     els.fixationFill.style.background =

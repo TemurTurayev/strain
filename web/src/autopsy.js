@@ -124,6 +124,17 @@ function findPointOfNoReturn(history, build) {
 function causeOfDeath(finalState) {
   const verdict = evaluate(finalState);
   if (verdict && verdict[0] === "loss") {
+    // Reframe the time-limit loss as the immune fixation completing — it is the
+    // same mechanic, but "cornered and cleared" is honest and not "out of time".
+    if (verdict[1] === "Out of time") {
+      return {
+        title: "Cornered",
+        detail:
+          "Immune fixation reached 100% — the host's adaptive response finished " +
+          "mapping your colony and the defences closed in and cleared it before " +
+          "you could break out.",
+      };
+    }
     return { title: verdict[1], detail: verdict[2] };
   }
   // Defensive fallback: the run record claims a loss but no terminal verdict.

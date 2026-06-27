@@ -32,8 +32,8 @@ function lerp(a, b, k) { return a + (b - a) * k; }
 function easeIO(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
 
 export function fixation() {
-  // How close the host is to forcing you out: time pressure + how well it knows you.
-  return clamp(0.55 * (disp.turn / MAX_TURNS) + 0.6 * (disp.lock / 100), 0, 1);
+  // The clock the host is racing: one notch per turn, full when it corners you.
+  return clamp(disp.turn / MAX_TURNS, 0, 1);
 }
 
 function resize() {
