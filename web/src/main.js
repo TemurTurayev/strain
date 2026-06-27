@@ -29,7 +29,7 @@ import {
 
 import { mountBuildScreen } from "./genome.js";
 import { offerMutations, mountMutationModal } from "./mutations.js";
-import { mountColony, updateColony, stopColony } from "./colony.js";
+import { mountColony, updateColony, stopColony, pulse, playEnding } from "./colony.js";
 import { flash, shake, popNumber } from "./juice.js";
 import { hint } from "./hints.js";
 import { buildAutopsy, renderAutopsy } from "./autopsy.js";
@@ -202,10 +202,11 @@ function onAction(action) {
 
   render();
 
-  // Terminal check.
+  // Terminal check — play the finale animation, THEN show the result.
   const verdict = evaluate(state);
   if (verdict) {
-    finishRun(verdict);
+    setActionsEnabled(false);
+    playEnding(endingKind(verdict), () => finishRun(verdict));
     return;
   }
 
@@ -235,6 +236,14 @@ function promptMutation(choices) {
     setActionsEnabled(true);
     render();
   });
+}
+
+function endingKind(verdict) {
+  const [outcome, title] = verdict;
+  if (outcome === "win") return "win";
+  if (title === "Out of time") return "timeout";
+  if (title === "Host collapsed") return "host";
+  return "cleared";
 }
 
 function finishRun(verdict) {
@@ -427,6 +436,20 @@ function appendLog(events, separate) {
 // ----------------------------------------------------------------------------
 function reactToLog(action, log) {
   const tags = log.map((e) => e[0]);
+
+  // Drive the colony simulation beat: visible immune strike + growth + window.
+  const imLine = log.find((e) => e[0] === "im");
+  if (imLine) {
+    const m = imLine[1].match(/damage[^\d]*([\d.]+)/);
+    const dmg = m ? parseFloat(m[1]) : 0;
+    if (dmg > 0.4) pulse("damage", dmg);
+  }
+  const growLine = log.find((e) => e[1].indexOf("replicate") === 0);
+  if (growLine) {
+    const m = growLine[1].match(/colony \+([\d.]+)/);
+    if (m) pulse("grow", parseFloat(m[1]));
+  }
+  if (action === "provoke") pulse("window");
 
   // Per-action audio cue.
   if (action === "replicate") play("replicate");
