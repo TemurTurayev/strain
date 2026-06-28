@@ -97,6 +97,18 @@ Enrichment roadmap `docs/plans/2026-06-27-enrichment-roadmap.md` — progress:
   feedback's nonlinear-lock fix doesn't fit solo's low-load window win-path — no-op).
   Inherent limit (accepted): LLMs rush the simple feed→transmit path, so the intel layer
   (scout/snitch/investigate) stays an OPTIONAL tool, not mandatory.
+- ✅ BIOLOGICAL-REALISM LAYER (89e6d50, 56deaa2) — owner's request "make immunity &
+  microbes like real life". Consilium council reframed it onto THREE axes: ACTIVE infection
+  vs hidden RESERVOIR vs immunopathology. `genome.type` = bacterium (acute, biofilm) / virus
+  (latent reservoir reactivates, never eradicated) / fungus (colonises, blooms when immunity
+  weak, suppressed not cleared). `host.immune_strength` 0.7/1.0/1.3. NEW outcome classifier:
+  Cleared/Contained (immune) · Chronic / Latent-carrier (host carries it) · Transmitted ·
+  host_death, with an early-equilibrium trigger. Emergent + accurate (`node eco_sim.mjs N bio`):
+  robust host contains bacteria 65% but viruses go chronic 63% / fungi 68%; immunocompromised
+  → fungal overgrowth 80%. Visible in the arena (type labels, dashed reservoir ring, chronic
+  banner). Base bacterium balance intact (~58/42). Design: `docs/plans/2026-06-28-organism-types.md`.
+  Council deferred (optional v2): innate/adaptive split, immunopathology cost, antigenic
+  variation, granuloma.
 - ✅ VALIDATED in a MODEL TOURNAMENT (`agent/eco_arena.mjs --llm=gemini,codex,claude`):
   the immune now WINS LLM games (2 of 3 — Claude & Codex as immune contained to t60),
   up from 0% before the feedback fixes. The two-step transmit + nonlinear lock + sharper
