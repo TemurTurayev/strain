@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Strain - Eco Viewer</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background: var(--bg); color: var(--text); }
+  </style>
+</head>
+<body>
+  <div id="viewer-root"></div>
+  <script type="module">
+    import { mountEcoViewer } from "./src/viewer/index.js?v=1";
+    const root = document.getElementById("viewer-root");
+    const viewer = mountEcoViewer(root);
+  </script>
+</body>
+</html>

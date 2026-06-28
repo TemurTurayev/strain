@@ -78,7 +78,7 @@ function immunePrompt(o) {
   ].join("\n");
 }
 
-function makeController(spec, faction) {
+export function makeController(spec, faction) {
   if (!spec || spec === "heuristic") return faction === "immune" ? defaultImmunePolicy : defaultColonyPolicy;
   const provider = spec.replace(/^llm:/, "");
   return async (o) => {
