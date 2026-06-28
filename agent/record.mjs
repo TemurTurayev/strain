@@ -11,8 +11,8 @@ import { defaultColonyPolicy, defaultImmunePolicy } from "../web/src/ecosystem.m
 
 const PALETTE = ["#e5484d", "#30a46c", "#e2a336", "#8e6cd9"];
 
-export async function recordEcosystem({ genomes, controllers, seed = "rec", source = "mixed" }) {
-  let w = freshEcosystem(genomes);
+export async function recordEcosystem({ genomes, controllers, seed = "rec", source = "mixed", hostOpts = {} }) {
+  let w = freshEcosystem(genomes, hostOpts);
   const ids = colonyIds(w);
   const frames = [];
   for (let i = 0; i < MAX_TICKS + 2 && !w.outcome; i++) {
@@ -46,9 +46,11 @@ const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   const args = Object.fromEntries(process.argv.slice(2).map((a) => { const [k, v] = a.replace(/^--/, "").split("="); return [k, v ?? true]; }));
   const genomes = [
-    { id: "A", stealth: 3, preferredO2: 80, home: "lung" },
-    { id: "B", stealth: 7, preferredO2: 20, home: "gut" },
+    { id: "A", stealth: 3, preferredO2: 80, home: "lung", type: args.typeA || "bacterium" },
+    { id: "B", stealth: 7, preferredO2: 20, home: "gut", type: args.typeB || "bacterium" },
   ];
+  const STRENGTH = { weak: 0.7, healthy: 1.0, robust: 1.3 };
+  const hostOpts = { immune_strength: STRENGTH[args.host] ?? 1.0 };
   const ctlSpec = (spec, faction) => (!spec || spec === "heuristic")
     ? (faction === "immune" ? defaultImmunePolicy : defaultColonyPolicy)
     : makeController(spec, faction);
@@ -56,6 +58,6 @@ if (isMain) {
     A: ctlSpec(args.A, "A"), B: ctlSpec(args.B, "B"), immune: ctlSpec(args.immune, "immune"),
   };
   const source = [args.A, args.B, args.immune].some((s) => String(s).startsWith("llm")) ? "llm" : "heuristic";
-  const replay = await recordEcosystem({ genomes, controllers, seed: args.seed || "rec", source });
+  const replay = await recordEcosystem({ genomes, controllers, seed: args.seed || "rec", source, hostOpts });
   process.stdout.write(JSON.stringify(replay));
 }
