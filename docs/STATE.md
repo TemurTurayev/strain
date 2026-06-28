@@ -12,18 +12,26 @@ the user trivial questions; he doesn't care about other players' opinions yet.
 - `.github/workflows/pages.yml` serves `web/` as a GitHub Pages site on push to master (build_type=workflow).
   Redeploy = just push to master. `.claude/`/node_modules are gitignored; no secrets tracked.
 
-## IN FLIGHT right now (resume here after compaction)
-- **Gemini tournament running in background** (`node agent/eco_arena.mjs --llm=gemini,codex,claude --games=3`,
-  task `b7win3wkf`, output `scratchpad/tournament2.txt`). Investigating the owner's concern that Gemini
-  showed 0% in an earlier 1-game tournament. ROOT CAUSE FOUND + FIXED: it was a PARSING bug — Gemini phrases
-  actions in its own words (e.g. immune `patrol:lymph`, not legal) and `parseEco` fell back to a default,
-  losing its decision. Fixed with action SYNONYMS (commit 662ef48: patrol→sweep, attack→strike, grow→feed,
-  escape→transmit, etc.). The bio-showcase already showed Gemini (as a fungus) winning. When the tournament
-  finishes: report Gemini's real win-rate (should be non-zero now).
-- The owner's last instructions this session: (1) run more agent matches re Gemini ✅ in flight, (2) audit+QA
-  ✅ DONE, (3) DEPLOY ✅ DONE. The /loop "work to perfection" is active — keep polishing after.
+## SOLO mode now has organism types (2026-06-29, live)
+The solo game (`web/index.html` → `engine.js` + `genome.js` + `main.js`) had only bacteria.
+Added a **bacterium / virus / fungus** selector on the build screen, each re-weighting the
+existing solo formulas + a hidden **reservoir** for virus & fungus: virus = fast / host-
+hammering / more-visible but leaves a LATENT reservoir; fungus = slow but blunts immune
+damage (more so when host is weak) → CHRONIC. Bacterium = untouched baseline (muls=1, no
+reservoir → proven balance intact). New persist endings ("Latent carrier" / "Chronic
+infection") survive even a strong (hypervigilant) host. Proven by deterministic Node smoke
+(`scratchpad/solo_persist_proof.mjs`) + in-browser selector/header/log.
+NOTE: headless preview can't show the rAF END-SCREEN animation (`document.hidden=true` pauses
+requestAnimationFrame) — affects ALL endings, not a bug; verify end screens in a real tab.
 
-## Four modes, one `observe(state) -> action` protocol
+## Gemini tournament RESOLVED (2026-06-29)
+Final leaderboard (9 LLM games): codex 67%, **gemini 33%** (was 0% — the synonym parse fix
+worked, commit 662ef48), claude 0%. The 0% was purely a parse bug. claude's 0% is a tiny-
+sample new oddity (immune vs fast colonies) — not yet investigated, low priority.
+
+## State of the session
+Owner's instructions delivered: more Gemini matches ✅, audit+QA ✅, DEPLOY ✅, solo types ✅.
+The /loop "work to perfection" is active — keep polishing. No tasks in flight.
 
 ## Four modes, one `observe(state) -> action` protocol
 
