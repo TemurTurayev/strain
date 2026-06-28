@@ -25,12 +25,14 @@ function noisy(policy, legalFor) {
 const colonyLegal = (o) => {
   const dom = o.me.dominant_zone;
   const adj = (o.zones[dom]?.adjacent) || [];
-  return ["feed", "hide", "toxin", "transmit", ...adj.map((z) => "move:" + z)];
+  return ["feed", "hide", "toxin", "transmit",
+    ...adj.map((z) => "move:" + z), ...adj.map((z) => "scout:" + z), ...ZONES.map((z) => "snitch:" + z)];
 };
 const immuneLegal = (o) => [
   "tolerize",
   ...ZONES.map((z) => "sweep:" + z),
   ...ZONES.map((z) => "contain:" + z),
+  ...ZONES.map((z) => "investigate:" + z),
   ...o.contacts.flatMap((c) => ["scan:" + c.id, "strike:" + c.id]),
 ];
 

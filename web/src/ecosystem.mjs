@@ -46,6 +46,17 @@ const MEMORY_CAP = 80;
 const HOST_MIN_TRANSMIT = 25;       // a dying host can't be transmitted from
 const BASE_GROW = 8;
 
+// ---- intel layer (scouting / snitching) -----------------------------------
+// Signaling Molecules (SM) are an espionage currency a colony accrues at high
+// quorum. scout buys recon on a neighbour; snitch frames a rival to the immune
+// system (which must investigate to trust the tip). This turns parallel farming
+// into social deduction without RTS micro.
+export const SCOUT_COST = 3;
+export const SNITCH_COST = 6;
+const SM_CAP = 20;
+const INVESTIGATE_ENERGY = 4;
+const TIP_TTL = 3;                   // ticks a tip stays on the immune's board
+
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const sum = (obj) => Object.values(obj).reduce((s, v) => s + v, 0);
 
@@ -78,6 +89,8 @@ export function freshEcosystem(genomes) {
       alive: true,
       transmitted: false,
       lastDrain: 0,
+      sm: 0,          // Signaling Molecules — funds scouting/snitching
+      lastScout: null, // most recent recon readout (surfaced once, then cleared)
     };
   }
   const zones = {};
@@ -99,6 +112,7 @@ export function freshEcosystem(genomes) {
     zones,
     colonies,
     immune: { energy: 6 },
+    tips: [],          // snitch/trace tips visible to the immune: {zone, fromId, real, age}
     outcome: null,
     log: [],
   };
@@ -153,14 +167,18 @@ function observeColony(world, id) {
       detected: +c.lock.toFixed(0),
       quorum: +quorum(c).toFixed(0),
       preferred_oxygen: c.preferredO2,
+      sm: +c.sm.toFixed(1),
     },
     zones: zoneView,
     host: { integrity: +world.host.integrity.toFixed(0), toxin: +world.host.toxin.toFixed(0) },
     competition,
+    scout_intel: (c.lastScout && world.tick - c.lastScout.tick <= 1) ? c.lastScout : null,
     exits: EXIT_THRESH,
     quorum_to_transmit: QUORUM_TRANSMIT,
     quorum_to_toxin: QUORUM_TOXIN,
-    legal_actions: ["feed", "move:<zone>", "hide", "toxin", "transmit"],
+    scout_cost: SCOUT_COST,
+    snitch_cost: SNITCH_COST,
+    legal_actions: ["feed", "move:<zone>", "hide", "toxin", "scout:<zone>", "snitch:<zone>", "transmit"],
     note: "Can't see other colonies. Grow biomass, migrate (move:zone) to an EXIT zone (gut thr 70 / lung thr 65), then transmit once presence there >= its threshold AND quorum >= 75 AND you're not too recognised. WARNING: mass piling up at an exit LEAKS detection before you escape. Blood is rich (iron) but a kill-zone; lymph is a memory trap.",
   };
 }
@@ -209,8 +227,9 @@ function observeImmune(world) {
     contacts,
     hidden_threat: +hiddenThreat.toFixed(0),
     lock_to_strike: LOCK_TO_STRIKE,
-    legal_actions: ["sweep:<zone>", "scan:<ID>", "strike:<ID>", "contain:<zone>", "tolerize"],
-    note: "You can't see undetected colonies — only per-zone anomalies (inflammation/nutrient_drain/signal). sweep a zone to build recognition (immune_lock) on whatever is there (1.35x at exits); scan:ID to focus a contact; strike:ID needs its lock>=lock_to_strike and hits hardest where immune_presence is high; contain:zone quarantines a zone after a 1-tick delay; tolerize heals the host. Memory makes a known strain re-lock fast even after it hides.",
+    tips: world.tips.filter((t) => t.age <= TIP_TTL).map((t) => ({ zone: t.zone, age: t.age })), // who tipped & truth are hidden until you investigate
+    legal_actions: ["sweep:<zone>", "scan:<ID>", "strike:<ID>", "contain:<zone>", "investigate:<zone>", "tolerize"],
+    note: "You can't see undetected colonies — only per-zone anomalies (inflammation/nutrient_drain/signal) and TIPS (a colony may have snitched on a rival). sweep a zone to build recognition (immune_lock) on whatever is there (1.35x at exits); scan:ID to focus a contact; strike:ID needs its lock>=lock_to_strike and hits hardest where immune_presence is high; contain:zone quarantines a zone after a 1-tick delay; investigate:zone acts on a tip — a TRUE tip instantly localises a hidden colony (+30 lock), a FALSE tip just wastes energy, so don't trust tips blindly; tolerize heals the host. Memory makes a known strain re-lock fast even after it hides.",
   };
 }
 
@@ -230,6 +249,8 @@ export function resolveEcoTick(world, actions) {
     else if (act === "move") moveColony(w, c, arg, log);
     else if (act === "hide") hideColony(c, log);
     else if (act === "toxin") toxinColony(w, c, log);
+    else if (act === "scout") scoutColony(w, c, arg, log);
+    else if (act === "snitch") snitchColony(w, c, arg, log);
     else if (act === "transmit") tryTransmit(w, c, log);
     else feedColony(w, c, log);
   }
@@ -255,6 +276,8 @@ export function resolveEcoTick(world, actions) {
   } else if (iact === "contain") {
     const z = ZONES.includes(itarget) ? itarget : busiestZone(w);
     if (z) { w.zones[z].containTimer = 2; im.energy -= 2; w.zones[z].inflammation += 3; log.push(`immune contain ${z} (arms next tick)`); }
+  } else if (iact === "investigate") {
+    investigateZone(w, ZONES.includes(itarget) ? itarget : newestTipZone(w), log);
   } else if (iact === "tolerize") {
     w.host.integrity = clamp(w.host.integrity + 6, 0, 100);
     for (const z of ZONES) w.zones[z].inflammation = Math.max(0, w.zones[z].inflammation - 6);
@@ -353,6 +376,66 @@ function toxinColony(w, c, log) {
   log.push(`${c.id} toxin@${z} (host toxin ${w.host.toxin.toFixed(0)}, −${dmg.toFixed(0)} to rivals here)`);
 }
 
+function scoutColony(w, c, target, log) {
+  if (c.sm < SCOUT_COST) { feedColony(w, c, log); return; } // can't afford -> just feed
+  const src = dominantZone(c);
+  const dest = ZONES.includes(target) && ADJ[src].concat(src).includes(target) ? target : ADJ[src][0];
+  c.sm -= SCOUT_COST;
+  let rivalPresence = 0, rivalSignal = 0;
+  for (const r of Object.values(w.colonies)) {
+    if (r.id === c.id || !r.alive || r.transmitted) continue;
+    rivalPresence += r.presence[dest]; rivalSignal += r.signature[dest];
+  }
+  c.lastScout = { zone: dest, rival_presence: +rivalPresence.toFixed(1), rival_signal: +rivalSignal.toFixed(1), tick: w.tick };
+  c.signature[src] += 4; // recon is not free — you stir the tissue a little
+  log.push(`${c.id} scout ${dest} (rivals ~${rivalPresence.toFixed(0)})`);
+}
+
+function snitchColony(w, c, target, log) {
+  if (c.sm < SNITCH_COST) { hideColony(c, log); return; }
+  const z = ZONES.includes(target) ? target : busiestRivalZone(w, c);
+  c.sm -= SNITCH_COST;
+  const victim = Object.values(w.colonies)
+    .filter((r) => r.id !== c.id && r.alive && !r.transmitted && r.presence[z] > 0.5)
+    .sort((a, b) => b.presence[z] - a.presence[z])[0];
+  if (victim) {
+    victim.signature[z] += 15; // frame them: their signal spikes where you ratted
+    w.tips.push({ zone: z, fromId: c.id, real: true, age: 0 });
+    log.push(`${c.id} snitch -> ${victim.id}@${z}`);
+  } else {
+    w.tips.push({ zone: z, fromId: c.id, real: false, age: 0 }); // a false tip (no real rival there)
+    log.push(`${c.id} snitch@${z} (false tip)`);
+  }
+  c.signature[dominantZone(c)] += 6; // snitching is audible
+}
+
+function investigateZone(w, z, log) {
+  if (!z) { w.immune.energy -= 1; log.push("immune investigate (no tip)"); return; }
+  w.immune.energy -= INVESTIGATE_ENERGY;
+  const real = Object.values(w.colonies)
+    .filter((r) => r.alive && !r.transmitted && r.presence[z] > 4)
+    .sort((a, b) => b.presence[z] - a.presence[z])[0];
+  // consume tips on this zone
+  for (const t of w.tips) if (t.zone === z) t.age = TIP_TTL + 1;
+  if (real) {
+    real.lock = clamp(real.lock + 30, 0, 100);
+    gainMemory(real, real.signature[z], 1);
+    log.push(`immune investigate ${z} -> localised ${real.id} (+30 lock)`);
+  } else {
+    log.push(`immune investigate ${z} (false alarm — energy wasted)`);
+  }
+}
+
+function busiestRivalZone(w, c) {
+  return ZONES.map((z) => [z, Object.values(w.colonies)
+    .filter((r) => r.id !== c.id && r.alive && !r.transmitted).reduce((s, r) => s + r.presence[z], 0)])
+    .sort((a, b) => b[1] - a[1])[0][0];
+}
+function newestTipZone(w) {
+  const t = w.tips.filter((x) => x.age <= TIP_TTL).sort((a, b) => a.age - b.age)[0];
+  return t ? t.zone : null;
+}
+
 function tryTransmit(w, c, log) {
   const toxinThrMul = w.host.toxin >= 30 ? 1.2 : 1;     // a toxic host is harder to escape
   const exitZone = EXITS
@@ -421,8 +504,11 @@ function upkeep(w, log) {
     c.lock = clamp(c.lock + passive, 0, 100);
     c.lock = Math.max(c.lock - 3, c.memory * 0.25); // decays, memory floors it (soft enrage)
     for (const z of ZONES) c.signature[z] *= 0.85;
+    c.sm = Math.min(SM_CAP, c.sm + Math.max(0, (quorum(c) - 40) / 15)); // espionage currency
     if (totalLoad(c) <= 0.5) { c.alive = false; log.push(`${c.id} cleared`); }
   }
+  for (const t of w.tips) t.age += 1;
+  w.tips = w.tips.filter((t) => t.age <= TIP_TTL);
   let totalInfl = 0;
   for (const z of ZONES) {
     const zw = w.zones[z];
@@ -471,6 +557,11 @@ export function defaultColonyPolicy(o) {
   const here = o.zones[dom] || {};
   if (EXITS.includes(dom) && here.mine >= (o.exits[dom] || 70) && o.me.quorum >= o.quorum_to_transmit && o.me.detected < LOCK_TO_TRANSMIT) return "transmit";
   if (o.me.detected >= 55) return "hide";
+  // recon: if rivals are pressing and we can afford it, scout the contested neighbour
+  if (o.competition === "high" && o.me.sm >= o.scout_cost && !o.scout_intel) {
+    const neighbour = (here.adjacent || [])[0];
+    if (neighbour) return "scout:" + neighbour;
+  }
   if (o.me.total_load >= 40 && !EXITS.includes(dom)) {
     const exitNeighbor = (here.adjacent || []).filter((z) => EXITS.includes(z))
       .sort((a, b) => (o.zones[a]?.immune_pressure ?? 9) - (o.zones[b]?.immune_pressure ?? 9))[0];
@@ -484,6 +575,11 @@ export function defaultImmunePolicy(o) {
   if (o.host.integrity <= 35 || o.host.toxin >= 45) return "tolerize";
   const ready = o.contacts.filter((c) => c.lock >= o.lock_to_strike).sort((a, b) => b.est_load - a.est_load)[0];
   if (ready && o.energy >= 3 && ready.est_load >= 18) return "strike:" + ready.id;
+  // act on a fresh tip when we have energy to spare — but it might be a false frame
+  if (o.tips && o.tips.length && o.energy >= 5) {
+    const fresh = o.tips.sort((a, b) => a.age - b.age)[0];
+    return "investigate:" + fresh.zone;
+  }
   const climbing = o.contacts.filter((c) => c.lock < o.lock_to_strike).sort((a, b) => b.est_load - a.est_load)[0];
   if (climbing) {
     const exitZone = (climbing.zones || []).find((z) => z === "gut" || z === "lung");
