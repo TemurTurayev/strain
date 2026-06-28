@@ -29,9 +29,10 @@ import {
   HOST_KEYS,
   transmitScore,
   transmitThreshold,
+  orgType,
 } from "./engine.js";
 
-import { mountBuildScreen } from "./genome.js?v=2";
+import { mountBuildScreen } from "./genome.js?v=3";
 import { offerMutations, mountMutationModal } from "./mutations.js?v=2";
 import { mountColony, updateColony, stopColony, pulse, playEnding } from "./colony.js?v=2";
 import { flash, shake, popNumber } from "./juice.js?v=2";
@@ -209,7 +210,8 @@ function startRun(selectedBuild) {
   lastAction = null;
   refreshAutoToggle();
 
-  els.strainTitle.textContent = build.name || "Strain";
+  const T = orgType(build);
+  els.strainTitle.textContent = T.glyph + " " + (build.name || "Strain") + " · " + T.name;
   if (els.hostBadge) els.hostBadge.textContent = currentHost.name;
   clear(els.log);
   clear(els.mutModal);
@@ -223,7 +225,7 @@ function startRun(selectedBuild) {
   setActionsEnabled(true);
   render();
   appendLog(
-    [["", "strain " + build.name + " — break out before immune fixation hits 100%"]],
+    [["", T.name + " strain " + build.name + " — break out before immune fixation hits 100%"]],
     false
   );
   show("play");
@@ -231,7 +233,7 @@ function startRun(selectedBuild) {
 
 function onAction(action) {
   if (!state || awaitingMutation || beatActive) return;
-  if (state.transmitted || evaluate(state)) return; // already terminal
+  if (state.transmitted || evaluate(state, build)) return; // already terminal
 
   lastAction = action; // auto-play repeats whatever you last chose
 
@@ -260,7 +262,7 @@ function afterBeat() {
   beatActive = false;
 
   // Terminal check — play the finale animation, THEN show the result.
-  const verdict = evaluate(state);
+  const verdict = evaluate(state, build);
   if (verdict) {
     setActionsEnabled(false);
     playEnding(endingKind(verdict), () => finishRun(verdict));
@@ -280,7 +282,7 @@ function afterBeat() {
   // Auto-play: repeat the last action, but hand control back at decisive moments.
   if (autoPlay && lastAction && !shouldPauseAuto()) {
     window.setTimeout(() => {
-      if (autoPlay && !beatActive && !awaitingMutation && state && !evaluate(state)) {
+      if (autoPlay && !beatActive && !awaitingMutation && state && !evaluate(state, build)) {
         onAction(lastAction);
       }
     }, 80);
@@ -311,7 +313,7 @@ function refreshAutoToggle() {
 function toggleAuto() {
   autoPlay = !autoPlay;
   refreshAutoToggle();
-  if (autoPlay && state && !beatActive && !awaitingMutation && !evaluate(state)) {
+  if (autoPlay && state && !beatActive && !awaitingMutation && !evaluate(state, build)) {
     if (!lastAction) lastAction = "replicate";
     if (!shouldPauseAuto()) onAction(lastAction);
   }
@@ -340,6 +342,7 @@ function promptMutation(choices) {
 function endingKind(verdict) {
   const [outcome, title] = verdict;
   if (outcome === "win") return "win";
+  if (outcome === "persist") return "timeout"; // colony slips away into latency, not wiped
   if (title === "Out of time") return "timeout";
   if (title === "Host collapsed") return "host";
   return "cleared";
@@ -366,6 +369,8 @@ function finishRun(verdict) {
 
   if (outcome === "win") {
     renderWin(title, detail, record);
+  } else if (outcome === "persist") {
+    renderPersist(title, detail, record);
   } else {
     renderLoss(record);
   }
@@ -414,6 +419,23 @@ function renderWin(title, detail, record) {
 
   els.autopsyRoot.appendChild(el("div", { class: "card result" }, children));
   setSummary("Win. " + title + ". " + detail);
+  show("autopsy");
+}
+
+// Persist ending (virus → Latent carrier, fungus → Chronic infection): you never
+// transmitted, but the immune system couldn't eradicate you. Not a win, not a clean
+// loss — a realistic stalemate that's the whole point of the new organism types.
+function renderPersist(title, detail, record) {
+  clear(els.autopsyRoot);
+  const children = [
+    el("span", { class: "result-badge persist", text: "Persisted" }),
+    el("h2", { text: title }),
+    el("p", { text: detail }),
+    el("p", { class: "turn-counter", text: "Held on to turn " + record.turn + " without breaking out." }),
+    resultActions(),
+  ];
+  els.autopsyRoot.appendChild(el("div", { class: "card result" }, children));
+  setSummary("Persisted. " + title + ". " + detail);
   show("autopsy");
 }
 

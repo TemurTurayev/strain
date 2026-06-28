@@ -300,6 +300,7 @@ button {
 }
 .result-badge.win { background: var(--success-soft); color: var(--success); }
 .result-badge.loss { background: var(--danger-soft); color: var(--danger); }
+.result-badge.persist { background: var(--warning-soft, rgba(226, 163, 54, 0.16)); color: var(--warning, #e2a336); }
 .result h2 { margin-bottom: 8px; }
 .result p { color: var(--text-2); margin: 0 auto 20px; max-width: 460px; }
 
@@ -438,6 +439,11 @@ button {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
+
+/* ---- Organism-type selector (bacterium / virus / fungus) -------------- */
+.type-grid { flex-direction: row; flex-wrap: wrap; }
+.type-grid .type-card { flex: 1 1 0; min-width: 150px; }
+.type-glyph { color: var(--accent); }
 
 /* ---- Mutation modal extras (title + skip) ----------------------------- */
 .mut-title { font-weight: 600; font-size: 16px; }

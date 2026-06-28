@@ -16,6 +16,38 @@ export const PRESETS = {
 };
 
 // ---------------------------------------------------------------------------
+// Organism types — a second axis on top of the genome. Each one RE-WEIGHTS the
+// existing formulas (growth / host damage / immune clearance / how visible you
+// are), and virus & fungus add a hidden RESERVOIR: scrub out the active colony
+// and it reactivates. That makes them realistically hard to eradicate — a
+// latent virus or a chronic fungus persists even against a strong immune
+// system. Bacterium is the untouched baseline (all multipliers 1, no reservoir),
+// so the proven balance is preserved and the new types are purely additive.
+// ---------------------------------------------------------------------------
+export const ORGANISM_TYPES = {
+  bacterium: {
+    key:"bacterium", name:"Bacterium", glyph:"●",
+    blurb:"The baseline — balanced growth and clearance. Clean rules, pure skill.",
+    growthMul:1, hostDmgMul:1, fixMul:1, immuneDmgMul:1,
+    reservoirRate:0, reservoirCap:0, reactSeed:0,
+  },
+  virus: {
+    key:"virus", name:"Virus", glyph:"✦",
+    blurb:"Hijacks host cells: fast growth, hits the host hard — but the immune system maps you faster. Leaves a hidden reservoir, so clearing the active load only drives you latent. Race to transmit before fixation closes in.",
+    growthMul:1.35, hostDmgMul:1.5, fixMul:1.25, immuneDmgMul:1.1,
+    reservoirRate:0.06, reservoirCap:60, reactSeed:6,
+  },
+  fungus: {
+    key:"fungus", name:"Fungus", glyph:"❋",
+    blurb:"Slow but tough: a thick wall blunts immune damage, and it surges when the host is weak. Nearly impossible to fully clear — settles into a smoldering, chronic infection.",
+    growthMul:0.7, hostDmgMul:0.85, fixMul:0.9, immuneDmgMul:0.5,
+    reservoirRate:0.05, reservoirCap:40, reactSeed:4,
+  },
+};
+export const ORGANISM_TYPE_KEYS = Object.keys(ORGANISM_TYPES);
+export function orgType(build){ return (build && ORGANISM_TYPES[build.type]) || ORGANISM_TYPES.bacterium; }
+
+// ---------------------------------------------------------------------------
 // Host states — one per run, visible from the start. They re-weight existing
 // formulas (no new buttons), so the same strain plays differently each run.
 // ---------------------------------------------------------------------------
@@ -87,7 +119,7 @@ export function freshState(hostState){
   const h = hostState || HOSTS.healthy;
   return { colony_load:START_COLONY, host_stability:h.startHost ?? START_HOST, inflammation:0,
     immune_lockon:0, transmission_window:0, turn:0, transmitted:false, latency_turns:0,
-    fixation:0, suppressStreak:0, replicateStreak:0, symbiosisStreak:0, host:h };
+    fixation:0, suppressStreak:0, replicateStreak:0, symbiosisStreak:0, reservoir:0, host:h };
 }
 
 // Dynamic immune fixation: the cost of VISIBILITY, not of time.
@@ -105,10 +137,11 @@ export function fixationGain(action, lockOn, inflammation, stealth, suppressStre
 export function resolve(action, s, build){
   s = { ...s }; const L = [];
   const h = host(s);
+  const T = orgType(build);
   const v=build.virulence/10, se=build.stealth/10, r=build.resistance/10;
   if (action === "replicate"){
     const cap = Math.max(0, 1 - s.colony_load/CARRY);
-    const g = s.colony_load*0.25*(0.5+v)*cap, inf = 3*(0.5+v)*(1-0.6*se);
+    const g = s.colony_load*0.25*(0.5+v)*cap*T.growthMul, inf = 3*(0.5+v)*(1-0.6*se);
     s.colony_load += g; s.inflammation += inf;
     L.push(["", "replicate → colony +"+g.toFixed(1)+", inflammation +"+inf.toFixed(1)]);
   } else if (action === "suppress"){
@@ -116,7 +149,7 @@ export function resolve(action, s, build){
     L.push(["", "suppress → inflammation →"+ni.toFixed(1)+", lock-on −"+drop.toFixed(1)+" (tempo lost)"]);
     s.inflammation = ni; s.immune_lockon = Math.max(0, s.immune_lockon-drop);
   } else if (action === "provoke"){
-    const inf = 8*(0.5+v), hit = 8*(0.5+v);
+    const inf = 8*(0.5+v), hit = 8*(0.5+v)*T.hostDmgMul;
     s.transmission_window = h.windowTurns; s.inflammation += inf; s.host_stability -= hit;
     L.push(["", "provoke → window open ("+h.windowTurns+"), host −"+hit.toFixed(1)+", inflammation +"+inf.toFixed(1)]);
   } else if (action === "transmit"){
@@ -129,15 +162,29 @@ export function resolve(action, s, build){
   }
   const inflThisTurn = s.inflammation;
   const gain = s.inflammation*0.20*(h.lockGainMul||1), nl = Math.min(100, s.immune_lockon+gain);
-  let dmg = s.colony_load*0.20*(nl/100)*(1-0.5*r)*(h.dmgMul||1);
+  // type-aware clearance: fungus shrugs off immune damage (thick wall), and even
+  // more so when the host is too weak to fight it back (opportunistic surge).
+  let immuneMul = T.immuneDmgMul;
+  if (build.type === "fungus" && s.host_stability < 50) immuneMul *= 0.6;
+  let dmg = s.colony_load*0.20*(nl/100)*(1-0.5*r)*(h.dmgMul||1)*immuneMul;
   if (s.latency_turns>0){ dmg = 0; s.latency_turns -= 1; }
   s.immune_lockon = nl; s.colony_load = Math.max(0, s.colony_load-dmg);
+  // hidden reservoir (viral latency / fungal focus): stash some load where the
+  // immune system can't reach it, and reseed the active colony if it's scrubbed out.
+  if (T.reservoirRate > 0){
+    s.reservoir = Math.min(T.reservoirCap, (s.reservoir||0) + Math.min(s.colony_load, 20)*T.reservoirRate);
+    if (s.colony_load <= 0.5 && s.reservoir > 1){
+      const react = Math.min(s.reservoir, T.reactSeed);
+      s.colony_load += react; s.reservoir -= react;
+      L.push(["im", (build.type === "virus" ? "reservoir reactivates" : "fungal focus regrows") + " → colony +"+react.toFixed(1)]);
+    }
+  }
   s.inflammation = s.inflammation*(h.inflDecay||0.7);
   s.transmission_window = Math.max(0, s.transmission_window-1); s.turn += 1;
   const sStreak = action === "suppress" ? (s.suppressStreak||0)+1 : 0;
   const rStreak = action === "replicate" ? (s.replicateStreak||0)+1 : 0;
   s.suppressStreak = sStreak; s.replicateStreak = rStreak;
-  const fixG = fixationGain(action, nl, inflThisTurn, build.stealth, sStreak, rStreak, h.fixLockMul);
+  const fixG = fixationGain(action, nl, inflThisTurn, build.stealth, sStreak, rStreak, h.fixLockMul) * T.fixMul;
   s.fixation = Math.min(100, (s.fixation||0) + fixG);
   // symbiosis: stay large, quiet and gentle for 3 turns and the host tolerates you
   const symbiotic = s.colony_load>50 && (s.fixation||0)<20 && s.host_stability>90;
@@ -187,17 +234,28 @@ export function observe(state, build){
     can_transmit: s.transmission_window > 0 && score >= thr,
     load_needed_for_window: +needNow(s, build).toFixed(1),
     genome: { virulence: build.virulence, stealth: build.stealth, adhesion: build.adhesion, resistance: build.resistance },
+    organism_type: orgType(build).key,
+    reservoir: +(s.reservoir || 0).toFixed(1),
     host: s.host ? { name: s.host.name, note: s.host.blurb } : null,
     legal_actions: LEGAL_ACTIONS,
     action_fixation_cost: cost,
   };
 }
 
-export function evaluate(s){
+export function evaluate(s, build){
+  const T = build ? orgType(build) : null;
+  // virus/fungus with a live reservoir can't be cleanly eradicated — they smolder on.
+  const persists = !!(T && T.reservoirRate > 0 && (s.reservoir||0) > 1);
   if (s.transmitted) return ["win","Transmitted","Your colony broke out to a new host before the immune system finished learning you."];
   if ((s.symbiosisStreak||0) >= 3) return ["win","Symbiosis","You stayed large, quiet and gentle long enough that the host's immune system accepted the colony as part of itself. A surgical, pacifist victory."];
-  if (s.colony_load<=0) return ["loss","Cleared","The immune system locked on and wiped the colony. Too loud, too soon."];
+  if (s.colony_load<=0 && !persists) return ["loss","Cleared","The immune system locked on and wiped the colony. Too loud, too soon."];
   if (s.host_stability<=0) return ["loss","Host collapsed","You killed the host before transmitting. Virulence with no exit."];
-  if ((s.fixation||0) >= 100 || s.turn >= MAX_TURNS) return ["loss","Cornered","Immune fixation reached 100% — the host's adaptive response fully mapped your colony and the defences closed in and cleared it before you broke out."];
+  if ((s.fixation||0) >= 100 || s.turn >= MAX_TURNS){
+    if (persists && build.type === "virus")
+      return ["persist","Latent carrier","You never broke out — but the immune system couldn't eradicate you. A hidden reservoir stays behind, latent, ready to flare when the host next weakens. This is how a virus wins the long game."];
+    if (persists)
+      return ["persist","Chronic infection","You never broke out — but the immune system couldn't clear you either. You settle into a smoldering, chronic infection the host will carry for a long time. Persistence is its own kind of victory."];
+    return ["loss","Cornered","Immune fixation reached 100% — the host's adaptive response fully mapped your colony and the defences closed in and cleared it before you broke out."];
+  }
   return null;
 }

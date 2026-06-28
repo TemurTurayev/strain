@@ -11,7 +11,7 @@
 // No DOM ids are invented here that conflict with the §DOM contract: this module
 // only writes inside the rootEl it is handed (#build-root) and clears it first.
 
-import { PRESETS, GENOME_BUDGET } from "./engine.js";
+import { PRESETS, GENOME_BUDGET, ORGANISM_TYPES, ORGANISM_TYPE_KEYS } from "./engine.js";
 
 // The four allocatable genome stats, in display order.
 const STATS = [
@@ -113,6 +113,27 @@ export function mountBuildScreen(rootEl, onStart) {
   let custom = { virulence: 5, stealth: 5, adhesion: 5, resistance: 5 };
   // Which preset (if any) is currently selected. null while editing custom.
   let selectedPresetKey = null;
+  // Organism type — orthogonal to the genome budget. Defaults to the baseline.
+  let selectedType = ORGANISM_TYPE_KEYS[0]; // "bacterium"
+
+  // --- Organism-type section (the new axis: bacterium / virus / fungus) ------
+  const typeCards = [];
+  const typeGrid = el("div", { class: "preset-grid type-grid", id: "type-grid", role: "radiogroup", "aria-label": "Organism type" });
+  for (const key of ORGANISM_TYPE_KEYS) {
+    const t = ORGANISM_TYPES[key];
+    const card = el(
+      "button",
+      { type: "button", class: "preset type-card", role: "radio", "aria-checked": "false", "aria-label": "Select organism type " + t.name },
+      [
+        el("div", { class: "preset-name" }, [el("span", { class: "type-glyph", text: t.glyph + " " }), t.name]),
+        el("div", { class: "preset-blurb", text: t.blurb }),
+      ]
+    );
+    card.dataset.type = key;
+    card.addEventListener("click", () => selectType(key));
+    typeCards.push(card);
+    typeGrid.appendChild(card);
+  }
 
   // --- Presets section ------------------------------------------------------
   const presetCards = [];
@@ -202,6 +223,9 @@ export function mountBuildScreen(rootEl, onStart) {
   const startRow = el("div", { class: "menu-actions genome-start-row" }, [startBtn]);
 
   // --- Assemble -------------------------------------------------------------
+  rootEl.appendChild(el("h2", { class: "genome-heading", text: "Organism type" }));
+  rootEl.appendChild(el("p", { class: "genome-help", text: "What kind of microbe are you? Each plays differently — a virus races but leaves a latent reservoir; a fungus is slow but nearly impossible to clear." }));
+  rootEl.appendChild(typeGrid);
   rootEl.appendChild(el("h2", { class: "genome-heading", text: "Proven strains" }));
   rootEl.appendChild(presetGrid);
   rootEl.appendChild(allocator);
@@ -210,11 +234,13 @@ export function mountBuildScreen(rootEl, onStart) {
   // --- State transitions ----------------------------------------------------
 
   // Read the build that will be started: a chosen preset, or the custom genome.
+  // The organism type rides along on every build (orthogonal to the genome).
   function currentBuild() {
-    if (selectedPresetKey) return defaultBuild(selectedPresetKey);
+    if (selectedPresetKey) return { ...defaultBuild(selectedPresetKey), type: selectedType };
     return {
       key: "custom",
       name: "Custom strain",
+      type: selectedType,
       virulence: custom.virulence,
       stealth: custom.stealth,
       adhesion: custom.adhesion,
@@ -224,6 +250,11 @@ export function mountBuildScreen(rootEl, onStart) {
 
   function selectPreset(key) {
     selectedPresetKey = key;
+    render();
+  }
+
+  function selectType(key) {
+    if (ORGANISM_TYPES[key]) selectedType = key;
     render();
   }
 
@@ -249,6 +280,13 @@ export function mountBuildScreen(rootEl, onStart) {
 
   // Reflect all state into the DOM.
   function render() {
+    // Organism-type cards selected state.
+    for (const card of typeCards) {
+      const isSel = card.dataset.type === selectedType;
+      card.classList.toggle("selected", isSel);
+      card.setAttribute("aria-checked", isSel ? "true" : "false");
+    }
+
     // Preset cards selected state.
     for (const card of presetCards) {
       const isSel = card.dataset.key === selectedPresetKey;
@@ -281,9 +319,10 @@ export function mountBuildScreen(rootEl, onStart) {
     const ok = validateBuild(build);
     startBtn.disabled = !ok;
     startBtn.setAttribute("aria-disabled", ok ? "false" : "true");
+    const typeName = ORGANISM_TYPES[selectedType]?.name || "Bacterium";
     startBtn.textContent = selectedPresetKey
-      ? "Start run with " + (PRESETS[selectedPresetKey]?.name || "strain")
-      : "Start custom run";
+      ? "Start " + typeName + " — " + (PRESETS[selectedPresetKey]?.name || "strain")
+      : "Start custom " + typeName;
   }
 
   render();
