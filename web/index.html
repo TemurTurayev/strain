@@ -112,9 +112,10 @@
             <div class="stat-label"><span>Immune lock-on <span class="stat-help">how well it has learned you — higher hits harder</span></span><span class="stat-val" id="val-lock">0</span></div>
             <div class="bar"><div class="bar-fill lock" id="stat-lock"></div></div>
           </div>
-          <!-- Window pill + inflammation readout -->
+          <!-- Window pill + inflammation readout (+ hidden reservoir for virus/fungus) -->
           <div class="window-row">
             <span class="pill" id="window-pill">Window closed</span>
+            <span class="stat-val reservoir-readout" id="reservoir-readout" hidden title="Hidden latent reservoir — reseeds your colony if it's cleared">Reservoir <span id="val-reservoir">0</span></span>
             <span class="stat-val">Inflammation <span id="val-infl">0</span></span>
           </div>
         </div>
@@ -186,6 +187,6 @@
     </div>
   </div>
 
-  <script type="module" src="src/main.js?v=3"></script>
+  <script type="module" src="src/main.js?v=4"></script>
 </body>
 </html>

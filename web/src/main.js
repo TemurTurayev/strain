@@ -82,6 +82,8 @@ const els = {
   valLock: $("val-lock"),
   windowPill: $("window-pill"),
   valInfl: $("val-infl"),
+  reservoirReadout: $("reservoir-readout"),
+  valReservoir: $("val-reservoir"),
   fixation: $("fixation"),
   fixationFill: $("fixation-fill"),
   speedToggle: $("speed-toggle"),
@@ -493,6 +495,16 @@ function render() {
 
   // Inflammation readout.
   countUp(els.valInfl, state.inflammation, { decimals: 1 });
+
+  // Reservoir readout — only virus/fungus carry a hidden latent/chronic pool.
+  if (els.reservoirReadout) {
+    if (orgType(build).reservoirRate > 0) {
+      els.reservoirReadout.hidden = false;
+      if (els.valReservoir) countUp(els.valReservoir, state.reservoir || 0, { decimals: 1 });
+    } else {
+      els.reservoirReadout.hidden = true;
+    }
+  }
 
   // Immune fixation — the real clock. It now ACCUMULATES from how visible you
   // play (loud/aggressive fills it faster, stealth slower); at 100% you're cornered.
