@@ -71,9 +71,25 @@ Enrichment roadmap `docs/plans/2026-06-27-enrichment-roadmap.md` — progress:
 - ✅ VERSUS tuned 36/64 → 44/56 (7a316c6), all 4 invariants PASS.
 - ✅ Real 3-model match recorded + replays in the arena via `eco-viewer.html?game=/llm_match.json`
   (8f31489) — verified live in-browser.
-- Genuinely-remaining (v2, council-deferred): richer arena (drama pacing / turn
-  narration / leaderboard). In-browser "record an LLM match" button isn't feasible
-  client-side (no CLI in the browser) — recording stays a `node agent/record.mjs` step.
+- ✅ ARENA v2 LEGIBILITY (68ef239, 8d7e995): live play-by-play narration (colour-coded
+  per faction, from the real engine log → works for LLM matches), outcome banner,
+  scrubber event-marks, event FX (transmit/strike/toxin).
+- ✅ QA AUDIT + PLAYER-FEEDBACK PASS (c5c3662, 4dc0167). A 27-agent QA workflow found 17
+  confirmed defects (all fixed): **immune energy is now actually enforced** (was
+  decorative — clamp masked overspend), **investigate requires a tip** (was a tip-free
+  stealth counter), viewer robustness (rAF auto-stops, FX no longer flood, degraded/proto
+  crashes guarded, same-origin ?game=), and **LLM controllers now know scout/snitch/
+  investigate** (they had been playing a stripped-down game). Consilium models PLAYED 3
+  solo + 3 ecosystem matches (role-rotated) and a council diagnosed "load outruns lock,
+  immune can't read transmit": fixed with **nonlinear biomass detection** (`lock +=
+  (load/33)²`) + **LOCK_TO_TRANSMIT 70→65** so transmit is readable/interceptable.
+  Ecosystem now colony 49 / immune 51, avg transmit tick ~13 (feedback target t10-13).
+  Solo deliberately NOT changed (protected; the feedback's nonlinear-lock fix doesn't
+  fit solo's low-load window win-path — verified a no-op, reverted).
+- Genuinely-remaining (v2, council-deferred): richer arena (drama pacing / leaderboard /
+  tournament). In-browser "record an LLM match" button isn't feasible client-side (no CLI
+  in the browser) — recording stays a `node agent/record.mjs` step. Solo "too easy for an
+  optimal bot" (balance_sim balanced-bot 93%) is a known, accepted single-player state.
 Principle: depth via indicators that change the value of existing actions.
 
 ## How the work was split (Consilium)
