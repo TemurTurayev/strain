@@ -11,7 +11,7 @@
 // against malformed JSON, missing storage (e.g. private mode / no DOM), and
 // non-array payloads so the game never crashes on a corrupt history.
 
-import { MAX_TURNS } from "./engine.js";
+import { MAX_TURNS } from "./engine.js?v=3";
 
 const STORAGE_KEY = "strain.runs";
 

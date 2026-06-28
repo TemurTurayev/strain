@@ -11,7 +11,7 @@
 // No DOM ids are invented here that conflict with the §DOM contract: this module
 // only writes inside the rootEl it is handed (#build-root) and clears it first.
 
-import { PRESETS, GENOME_BUDGET, ORGANISM_TYPES, ORGANISM_TYPE_KEYS } from "./engine.js";
+import { PRESETS, GENOME_BUDGET, ORGANISM_TYPES, ORGANISM_TYPE_KEYS } from "./engine.js?v=3";
 
 // The four allocatable genome stats, in display order.
 const STATS = [

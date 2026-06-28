@@ -12,7 +12,7 @@
 //
 // The choices vary by state.turn so successive offers are not identical.
 
-import { MUTATIONS, mutationOfferTurn } from "./engine.js";
+import { MUTATIONS, mutationOfferTurn } from "./engine.js?v=3";
 
 // ---------------------------------------------------------------------------
 // Offer selection

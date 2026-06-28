@@ -1,5 +1,5 @@
 // hints.js — contextual novice hint. Imports only from ./engine.js.
-import { transmitScore, transmitThreshold, needNow } from "./engine.js";
+import { transmitScore, transmitThreshold, needNow } from "./engine.js?v=3";
 
 /**
  * Contextual nudge for the current state + build (host- and window-aware).

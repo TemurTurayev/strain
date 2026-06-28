@@ -25,6 +25,7 @@ const VOICES = {
   hit:       { wave: "sawtooth", freq: 160, dur: 0.10, gain: 0.16 }, // harsh thud
   win:       { wave: "triangle", freq: 660, dur: 0.16, gain: 0.20 }, // rising two-note (see play)
   loss:      { wave: "sine",     freq: 200, dur: 0.22, gain: 0.18 }, // falling two-note (see play)
+  persist:   { wave: "sine",     freq: 300, dur: 0.18, gain: 0.16 }, // flat two-note drone — neither win nor loss (see play)
 };
 
 function readMutedFromStorage() {
@@ -88,6 +89,9 @@ export function play(name) {
     } else if (name === "loss") {
       blip(voice.wave, 240, now, 0.16, voice.gain);
       blip(voice.wave, 150, now + 0.14, 0.24, voice.gain);   // falling
+    } else if (name === "persist") {
+      blip(voice.wave, 300, now, 0.18, voice.gain);
+      blip(voice.wave, 300, now + 0.16, 0.30, voice.gain);   // flat, lingering — smoldering on
     } else {
       blip(voice.wave, voice.freq, now, voice.dur, voice.gain);
     }

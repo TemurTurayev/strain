@@ -11,7 +11,7 @@
 // win — the point of no return — then craft a counterfactual line that
 // references concrete numbers from that turn.
 
-import { resolve, evaluate, MAX_TURNS, T_THRESH, need } from "./engine.js";
+import { resolve, evaluate, MAX_TURNS, T_THRESH, need } from "./engine.js?v=3";
 
 const ACTIONS = ["replicate", "suppress", "provoke", "transmit"];
 
@@ -37,7 +37,7 @@ const WINNABLE_BEAM = 96;
 function isWinnable(s, build) {
   if (!s) return false;
 
-  const verdict0 = evaluate(s);
+  const verdict0 = evaluate(s, build);
   if (verdict0) return verdict0[0] === "win";
   if (s.turn >= MAX_TURNS) return false;
 
@@ -71,7 +71,7 @@ function isWinnable(s, build) {
     for (const state of beam) {
       for (const action of ACTIONS) {
         const [child] = resolve(action, state, build);
-        const verdict = evaluate(child);
+        const verdict = evaluate(child, build);
         if (verdict) {
           if (verdict[0] === "win") return true;
           continue; // terminal loss: a dead branch, drop it
@@ -121,20 +121,9 @@ function findPointOfNoReturn(history, build) {
 }
 
 /** Human-readable cause of death from the final state. */
-function causeOfDeath(finalState) {
-  const verdict = evaluate(finalState);
+function causeOfDeath(finalState, build) {
+  const verdict = evaluate(finalState, build);
   if (verdict && verdict[0] === "loss") {
-    // Reframe the time-limit loss as the immune fixation completing — it is the
-    // same mechanic, but "cornered and cleared" is honest and not "out of time".
-    if (verdict[1] === "Out of time") {
-      return {
-        title: "Cornered",
-        detail:
-          "Immune fixation reached 100% — the host's adaptive response finished " +
-          "mapping your colony and the defences closed in and cleared it before " +
-          "you could break out.",
-      };
-    }
     return { title: verdict[1], detail: verdict[2] };
   }
   // Defensive fallback: the run record claims a loss but no terminal verdict.
@@ -226,7 +215,7 @@ export function buildAutopsy(history, build) {
   const decisiveState = lastWinnableState || doomedState || finalState;
 
   const cause = finalState
-    ? causeOfDeath(finalState)
+    ? causeOfDeath(finalState, build)
     : { title: "No run data", detail: "There was nothing to analyze." };
 
   const counterfactual = craftCounterfactual(decisiveState, build);

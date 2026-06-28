@@ -30,16 +30,16 @@ import {
   transmitScore,
   transmitThreshold,
   orgType,
-} from "./engine.js";
+} from "./engine.js?v=3";
 
 import { mountBuildScreen } from "./genome.js?v=3";
 import { offerMutations, mountMutationModal } from "./mutations.js?v=2";
 import { mountColony, updateColony, stopColony, pulse, playEnding } from "./colony.js?v=2";
 import { flash, shake, popNumber } from "./juice.js?v=2";
 import { hint } from "./hints.js?v=2";
-import { buildAutopsy, renderAutopsy } from "./autopsy.js?v=2";
+import { buildAutopsy, renderAutopsy } from "./autopsy.js?v=3";
 import { saveRun, bestTransmissionTurn } from "./history.js?v=2";
-import { initAudio, play, setMuted, isMuted, setHum, stopHum } from "./audio.js?v=2";
+import { initAudio, play, setMuted, isMuted, setHum, stopHum } from "./audio.js?v=3";
 import { countUp, burst } from "./fx.js?v=2";
 import { isFirstVisit, markSeen, openHowTo, closeHowTo } from "./tutorial.js?v=2";
 
@@ -343,7 +343,6 @@ function endingKind(verdict) {
   const [outcome, title] = verdict;
   if (outcome === "win") return "win";
   if (outcome === "persist") return "timeout"; // colony slips away into latency, not wiped
-  if (title === "Out of time") return "timeout";
   if (title === "Host collapsed") return "host";
   return "cleared";
 }
@@ -365,7 +364,7 @@ function finishRun(verdict) {
   saveRun(record);
 
   // Audio sting for the outcome.
-  play(outcome === "win" ? "win" : "loss");
+  play(outcome === "win" ? "win" : outcome === "persist" ? "persist" : "loss");
 
   if (outcome === "win") {
     renderWin(title, detail, record);
