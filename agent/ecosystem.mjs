@@ -14,12 +14,23 @@ import { askModel } from "./adapters/cli.mjs";
 const COLONY_ACTS = ["feed", "move", "hide", "toxin", "scout", "snitch", "transmit"];
 const IMMUNE_ACTS = ["sweep", "scan", "strike", "contain", "investigate", "tolerize"];
 
+// models often phrase an action in their own words — map common synonyms to the legal
+// verb so their INTENT isn't lost to a default (e.g. Gemini saying "patrol" -> sweep).
+const SYN = {
+  immune: { patrol: "sweep", surveil: "sweep", monitor: "sweep", survey: "sweep", search: "sweep", attack: "strike", kill: "strike", destroy: "strike", eliminate: "strike", neutralize: "strike", quarantine: "contain", isolate: "contain", lockdown: "contain", wall: "contain", identify: "scan", focus: "scan", track: "scan", probe: "scan", localize: "scan", check: "investigate", verify: "investigate", inspect: "investigate", examine: "investigate", rest: "tolerize", calm: "tolerize", heal: "tolerize", dampen: "tolerize", soothe: "tolerize" },
+  colony: { grow: "feed", replicate: "feed", divide: "feed", multiply: "feed", consume: "feed", migrate: "move", relocate: "move", travel: "move", conceal: "hide", cloak: "hide", dormant: "hide", poison: "toxin", secrete: "toxin", recon: "scout", explore: "scout", spy: "scout", rat: "snitch", frame: "snitch", tattle: "snitch", escape: "transmit", spread: "transmit", disseminate: "transmit", flee: "transmit" },
+};
+function applySynonyms(line, faction) {
+  const map = SYN[faction === "immune" ? "immune" : "colony"];
+  return line.replace(/[a-z]+/g, (w) => map[w] || w);
+}
+
 function parseEco(text, faction, contactIds) {
   const t = String(text || "").toLowerCase();
   const lines = t.trim().split(/\r?\n/).filter(Boolean);
   const legal = faction === "immune" ? IMMUNE_ACTS : COLONY_ACTS;
   for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
+    const line = applySynonyms(lines[i], faction);
     const m = line.match(new RegExp("\\b(" + legal.join("|") + ")\\b(?:\\s*[:=]?\\s*([a-z0-9]+))?"));
     if (!m) continue;
     const act = m[1];
