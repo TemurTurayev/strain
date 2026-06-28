@@ -76,6 +76,7 @@ const els = {
   valInfl: $("val-infl"),
   fixation: $("fixation"),
   fixationFill: $("fixation-fill"),
+  speedToggle: $("speed-toggle"),
   // play body
   canvas: $("colony-canvas"),
   hint: $("hint"),
@@ -99,6 +100,11 @@ let build = null; // current strain genome { key, name, virulence, stealth, adhe
 let state = null; // current engine state
 let history = []; // [{ state, action }] — pre-action snapshots, consumed by autopsy.js
 let awaitingMutation = false; // true while the mutation modal is blocking input
+let beatActive = false; // true while a turn's consequence is playing out (input locked)
+let speed = 1; // simulation speed: 1 | 2 | 4 (scales the beat duration)
+
+const BEAT_BASE_MS = 750;
+function beatDuration() { return Math.max(220, BEAT_BASE_MS / speed); }
 
 // ----------------------------------------------------------------------------
 // Screen routing
@@ -186,10 +192,10 @@ function startRun(selectedBuild) {
 }
 
 function onAction(action) {
-  if (!state || awaitingMutation) return;
+  if (!state || awaitingMutation || beatActive) return;
   if (state.transmitted || evaluate(state)) return; // already terminal
 
-  // Engine step.
+  // Engine step (numbers are known immediately).
   const [next, log] = resolve(action, state, build);
 
   // Record the pre-action snapshot AND the resolved result so autopsy can read
@@ -202,7 +208,16 @@ function onAction(action) {
   // Juice + audio reactions keyed off the action and the resolved log.
   reactToLog(action, log);
 
-  render();
+  render(); // bars ease, numbers count up, the colony plays the consequence
+
+  // Lock input and let the beat play out; resolve the outcome once it settles.
+  beatActive = true;
+  setActionsEnabled(false);
+  window.setTimeout(afterBeat, beatDuration());
+}
+
+function afterBeat() {
+  beatActive = false;
 
   // Terminal check — play the finale animation, THEN show the result.
   const verdict = evaluate(state);
@@ -217,7 +232,10 @@ function onAction(action) {
   const choices = offerMutations(state);
   if (choices.length > 0) {
     promptMutation(choices);
+    return;
   }
+
+  setActionsEnabled(true);
 }
 
 function promptMutation(choices) {
@@ -560,6 +578,22 @@ function toggleAudio() {
 }
 
 // ----------------------------------------------------------------------------
+// Simulation speed (scales the per-turn beat)
+// ----------------------------------------------------------------------------
+function refreshSpeedToggle() {
+  if (els.speedToggle) {
+    els.speedToggle.textContent = speed + "×";
+    els.speedToggle.setAttribute("aria-label", "Simulation speed " + speed + " times");
+  }
+}
+
+function cycleSpeed() {
+  speed = speed === 1 ? 2 : speed === 2 ? 4 : 1;
+  try { localStorage.setItem("strain.speed", String(speed)); } catch { /* ignore */ }
+  refreshSpeedToggle();
+}
+
+// ----------------------------------------------------------------------------
 // Wiring
 // ----------------------------------------------------------------------------
 function openHelp() {
@@ -579,6 +613,14 @@ function init() {
   if (els.audioToggle) els.audioToggle.addEventListener("click", toggleAudio);
   if (els.audioTogglePlay)
     els.audioTogglePlay.addEventListener("click", toggleAudio);
+
+  // Simulation speed.
+  try {
+    const saved = parseInt(localStorage.getItem("strain.speed"), 10);
+    if (saved === 2 || saved === 4) speed = saved;
+  } catch { /* ignore */ }
+  if (els.speedToggle) els.speedToggle.addEventListener("click", cycleSpeed);
+  refreshSpeedToggle();
 
   // Onboarding: intro screen + how-to overlay.
   if (els.introContinue)

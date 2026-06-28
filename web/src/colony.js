@@ -21,6 +21,7 @@ let disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0 };
 let cells = [];                 // { seed, sp, jr, nuc, bornAt, dmgT }
 let immune = [];                // { x, y, vx, vy, phase, sp, lungeT, trail }
 let particles = [];
+let divisions = [];             // { x, y, t0 } — brief mitosis (dumbbell split) animations
 let damageFlashT = -9, shakeT = -9;
 let ending = null;
 let t0 = 0;
@@ -88,7 +89,7 @@ export function mountColony(canvas) {
   if (!canvas || !canvas.getContext) return;
   cv = canvas; ctx = canvas.getContext("2d");
   disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0 };
-  cells = []; immune = []; particles = []; ending = null; damageFlashT = -9; shakeT = -9;
+  cells = []; immune = []; particles = []; divisions = []; ending = null; damageFlashT = -9; shakeT = -9;
   t0 = performance.now();
   resize();
   startLoop();
@@ -125,8 +126,12 @@ export function pulse(kind, mag = 1) {
     }
   } else if (kind === "grow") {
     const k = clamp(Math.round(mag / 4), 1, 8);
-    for (const c of cells) if (now() - c.bornAt < 0.05) c.bornAt = now();
-    for (let i = 0; i < k; i++) spawnParticle(cx, cy, "rgba(140,240,200,", 12 + Math.random() * 12, 0.6);
+    const spread = 12 + Math.sqrt(Math.max(1, disp.load)) * 4;
+    for (let i = 0; i < k; i++) {
+      const a = Math.random() * 6.28, d = Math.random() * spread;
+      if (divisions.length < 40) divisions.push({ x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d, t0: now() });
+      spawnParticle(cx, cy, "rgba(140,240,200,", 12 + Math.random() * 12, 0.6);
+    }
   } else if (kind === "window") {
     for (let i = 0; i < 12; i++) spawnParticle(W - 16, cy + (Math.random() - 0.5) * H * 0.5, "rgba(120,240,200,", 16, 0.8);
   } else if (kind === "immune") {
@@ -148,7 +153,7 @@ export function playEnding(kind, onDone) {
 
 export function stopColony() {
   if (raf) cancelAnimationFrame(raf);
-  raf = null; cv = null; ctx = null; target = null; ending = null; particles = []; immune = [];
+  raf = null; cv = null; ctx = null; target = null; ending = null; particles = []; immune = []; divisions = [];
 }
 
 function draw(time) {
@@ -229,6 +234,18 @@ function draw(time) {
     drawCell(x, y, (3.4 + pulseR) * (0.4 + 0.6 * grow), c, alpha, time);
   }
 
+  // ---- mitosis (cells dividing) ------------------------------------------
+  if (!ending) {
+    for (let i = divisions.length - 1; i >= 0; i--) {
+      const d = divisions[i];
+      const p = (now() - d.t0) / 0.55;
+      if (p >= 1) { divisions.splice(i, 1); continue; }
+      drawDivision(d.x, d.y, p, time);
+    }
+  } else {
+    divisions.length = 0;
+  }
+
   // ---- immune cells -------------------------------------------------------
   let icount = Math.round(lerp(0, 16, Math.max(alarm, fix * 0.8)));
   if (ending && (ending.kind === "cleared" || ending.kind === "host")) icount = Math.round(lerp(icount, 22, ep));
@@ -275,6 +292,32 @@ function drawCell(x, y, r, c, alpha, time) {
   // nucleus
   ctx.fillStyle = `rgba(18,64,58,${0.6 * alpha})`;
   ctx.beginPath(); ctx.arc(x + Math.cos(c.nuc) * r * 0.25, y + Math.sin(c.nuc) * r * 0.2, r * 0.34, 0, 6.2832); ctx.fill();
+  // rupture ring when freshly hit
+  if (damaged) {
+    const k = (now() - c.dmgT) / 0.45;
+    ctx.strokeStyle = `rgba(255,110,110,${(1 - k) * 0.8 * alpha})`;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(x, y, r + 1 + k * 7, 0, 6.2832); ctx.stroke();
+  }
+}
+
+function drawDivision(x, y, p, time) {
+  // a cell stretches into a dumbbell, then splits into two
+  const sep = easeIO(p) * 6.5;
+  const r = 3.6 * (1 - p * 0.15);
+  const tint = "rgba(143,240,200,";
+  // bridge while still close
+  if (p < 0.7) {
+    ctx.strokeStyle = tint + (0.5 * (1 - p / 0.7)) + ")";
+    ctx.lineWidth = r * 1.2;
+    ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(x - sep, y); ctx.lineTo(x + sep, y); ctx.stroke();
+  }
+  for (const s of [-1, 1]) {
+    ctx.beginPath(); ctx.arc(x + s * sep, y, r, 0, 6.2832);
+    ctx.fillStyle = tint + (0.9) + ")"; ctx.fill();
+    ctx.strokeStyle = "rgba(180,255,225,0.7)"; ctx.lineWidth = 1; ctx.stroke();
+  }
 }
 
 function updateImmune(im, cx, cy, clusterR, alarm, fix, ending, ep, time) {
