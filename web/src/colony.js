@@ -98,6 +98,7 @@ export function mountColony(canvas) {
   if (!canvas || !canvas.getContext) return;
   cv = canvas; ctx = canvas.getContext("2d");
   disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0, fixation: 0, reservoir: 0 };
+  colonyType = "bacterium"; // reset per run; updateColony sets the real type before first paint
   cells = []; immune = []; particles = []; divisions = []; ending = null; damageFlashT = -9; shakeT = -9;
   t0 = performance.now();
   resize();

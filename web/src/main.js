@@ -34,7 +34,7 @@ import {
 
 import { mountBuildScreen } from "./genome.js?v=3";
 import { offerMutations, mountMutationModal } from "./mutations.js?v=2";
-import { mountColony, updateColony, stopColony, pulse, playEnding } from "./colony.js?v=3";
+import { mountColony, updateColony, stopColony, pulse, playEnding } from "./colony.js?v=4";
 import { flash, shake, popNumber } from "./juice.js?v=2";
 import { hint } from "./hints.js?v=2";
 import { buildAutopsy, renderAutopsy } from "./autopsy.js?v=3";
