@@ -1,178 +1,464 @@
-// ecosystem.mjs — a multi-faction, HIDDEN-INFORMATION simulation inside one host.
-// Several microbe colonies compete (invisibly) for the host's nutrients and race
-// to transmit, while the host's immune system — which can't see a colony until it
-// detects it — tries to find and clear them. Each faction gets only its OWN
+// ecosystem.mjs — a multi-faction, HIDDEN-INFORMATION simulation inside one host,
+// played across a GRAPH OF TISSUE ZONES (gut / blood / lung / lymph).
+//
+// Several microbe colonies compete (invisibly) for each zone's nutrients, migrate
+// between adjacent zones, and race to transmit from an EXIT zone — while the host's
+// immune system, which can't see a colony until it builds RECOGNITION (immune_lock)
+// of that strain in a specific zone, hunts them down. Each faction gets only its OWN
 // partial view (observeEco). Simultaneous ticks. Built for multi-agent play.
 //
-// Separate from solo and versus — its own mode.
+// Balance package reviewed by the Consilium council. Core principle: depth lives in
+// VISIBLE environment variables that change the value of existing actions — and mass
+// accumulating at an exit LEAKS detection before transmit, so quiet exit-camping is
+// not a free win. Separate from solo and versus — its own mode.
 
-export const TRANSMIT_THRESHOLD = 50;
+// ---- the tissue graph ------------------------------------------------------
+export const ZONES = ["gut", "blood", "lung", "lymph"];
+export const ADJ = {
+  gut: ["blood"],
+  lung: ["blood"],
+  blood: ["gut", "lung", "lymph"],
+  lymph: ["blood"],
+};
+// transmit exits + their per-zone presence thresholds (gut = slow/resource, lung =
+// fast/loud). The two exits are deliberately different escape routes.
+export const EXIT_THRESH = { gut: 70, lung: 65 };
+export const EXITS = Object.keys(EXIT_THRESH);
+
+// per-zone environment. oxygen is 0..100 (an aerobe/anaerobe niche); immune is a
+// DAMAGE/DETECT multiplier (lymph hits ~3x harder than gut). glucose/iron deplete
+// and regenerate toward base; g_regen/i_regen set the refill rate.
+const ZONE_BASE = {
+  gut: { glucose: 100, g_regen: 12, iron: 45, i_regen: 3, oxygen: 15, immune: 0.65 },
+  lung: { glucose: 70, g_regen: 8, iron: 25, i_regen: 2, oxygen: 85, immune: 0.75 },
+  blood: { glucose: 80, g_regen: 10, iron: 90, i_regen: 8, oxygen: 80, immune: 1.5 },
+  lymph: { glucose: 35, g_regen: 4, iron: 20, i_regen: 1, oxygen: 50, immune: 2.0 },
+};
+
+// ---- tuning knobs (council-reviewed first cut) ----------------------------
 export const MAX_TICKS = 60;
-export const DETECT_REVEAL = 25;   // detection above which a colony becomes a "contact"
+export const QUORUM_TRANSMIT = 75;  // quorum needed to transmit (total_load ~60)
+export const QUORUM_TOXIN = 35;     // quorum needed to release toxins (total_load ~28)
+export const DETECT_REVEAL = 25;    // immune_lock above which a colony becomes a visible "contact"
+export const LOCK_TO_STRIKE = 40;   // immune_lock needed before a strike actually bites
+export const LOCK_TO_TRANSMIT = 70; // above this recognition, the exit is too watched to slip out
+const MEMORY_CAP = 80;
+const HOST_MIN_TRANSMIT = 25;       // a dying host can't be transmitted from
+const BASE_GROW = 8;
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const sum = (obj) => Object.values(obj).reduce((s, v) => s + v, 0);
 
+export function totalLoad(c) { return sum(c.presence); }
+export function quorum(c) { return Math.min(100, totalLoad(c) * 1.25); }
+export function quorumOk(c) { return quorum(c) >= QUORUM_TOXIN; } // back-compat helper
+export function dominantZone(c) {
+  return ZONES.reduce((best, z) => (c.presence[z] > c.presence[best] ? z : best), ZONES[0]);
+}
+
+// ---- world construction ----------------------------------------------------
 export function freshEcosystem(genomes) {
-  // genomes: [{ id, stealth }] — 1..N microbe colonies
+  // genomes: [{ id, stealth, preferredO2, home }]
   const colonies = {};
   for (const g of genomes) {
+    const home = g.home && ZONES.includes(g.home) && home_ok(g.home) ? g.home : "gut";
+    const presence = Object.fromEntries(ZONES.map((z) => [z, 0]));
+    presence[home] = 12;
+    const signature = Object.fromEntries(ZONES.map((z) => [z, 0]));
+    signature[home] = 8;
     colonies[g.id] = {
-      id: g.id, stealth: g.stealth ?? 5,
-      load: 10, signature: 0, detection: 0,
-      alive: true, transmitted: false,
+      id: g.id,
+      stealth: g.stealth ?? 5,
+      preferredO2: g.preferredO2 ?? 50,
+      home,
+      presence,
+      signature,
+      lock: 0,        // immune recognition of THIS strain (global)
+      memory: 0,      // long-term memory: floors the lock, soft-enrages over time
+      alive: true,
+      transmitted: false,
       lastDrain: 0,
+    };
+  }
+  const zones = {};
+  for (const z of ZONES) {
+    zones[z] = {
+      glucose: ZONE_BASE[z].glucose,
+      iron: ZONE_BASE[z].iron,
+      oxygen: ZONE_BASE[z].oxygen,
+      immune_presence: ZONE_BASE[z].immune,
+      inflammation: 0,
+      drainLast: 0,        // glucose pulled here last tick (an anomaly the immune can read)
+      sweptLast: false,    // patrolled last tick (passing through costs extra here)
+      containTimer: 0,     // quarantine countdown; >0 means contained (1-tick delayed effect)
     };
   }
   return {
     tick: 0,
-    host: { health: 100, nutrients: 100, inflammation: 0 },
+    host: { integrity: 100, toxin: 0 },
+    zones,
     colonies,
-    immune: { energy: 5 },
-    totalDrainLast: 0,
+    immune: { energy: 6 },
     outcome: null,
     log: [],
   };
 }
+function home_ok(z) { return z !== "blood" && z !== "lymph"; } // colonies seed in gut/lung
 
 export function colonyIds(world) { return Object.keys(world.colonies); }
 export function factions(world) { return [...colonyIds(world), "immune"]; }
 
 // ---- partial observation per faction --------------------------------------
 export function observeEco(world, factionId) {
-  const h = world.host;
-  if (factionId === "immune") {
-    const contacts = [];
-    let backgroundThreat = 0;
-    for (const c of Object.values(world.colonies)) {
-      if (!c.alive || c.transmitted) continue;
-      if (c.detection >= DETECT_REVEAL) {
-        // revealed: noisy load estimate
-        const noise = (1 - c.detection / 200);
-        contacts.push({ id: c.id, est_load: +Math.max(0, c.load * (0.85 + 0.3 * (1 - noise))).toFixed(0), detection: +c.detection.toFixed(0) });
-      } else {
-        backgroundThreat += c.signature; // it can feel there's *something* unseen
-      }
-    }
-    return {
-      faction: "immune", tick: world.tick,
-      host: { health: +h.health.toFixed(0), inflammation: +h.inflammation.toFixed(0), nutrients: +h.nutrients.toFixed(0) },
-      energy: +world.immune.energy.toFixed(1),
-      contacts,
-      hidden_threat: +backgroundThreat.toFixed(0), // intel: how much undetected signal is out there
-      legal_actions: ["sweep", "scan", "strike", "contain", "tolerize"],
-      note: "scan/strike/contain take a target id from contacts; sweep raises detection on everything; you cannot see undetected colonies, only hidden_threat.",
+  if (factionId === "immune") return observeImmune(world);
+  return observeColony(world, factionId);
+}
+
+function observeColony(world, id) {
+  const c = world.colonies[id];
+  if (!c) return null;
+  const occupied = ZONES.filter((z) => c.presence[z] > 0.5);
+  const visibleZones = new Set(occupied);
+  for (const z of occupied) for (const n of ADJ[z]) visibleZones.add(n);
+
+  const zoneView = {};
+  for (const z of visibleZones) {
+    const zw = world.zones[z];
+    const here = occupied.includes(z);
+    zoneView[z] = {
+      mine: +c.presence[z].toFixed(1),
+      glucose: +zw.glucose.toFixed(0),
+      iron: +zw.iron.toFixed(0),
+      oxygen: zw.oxygen,
+      inflammation: +zw.inflammation.toFixed(0),
+      immune_pressure: zw.immune_presence,
+      contained: zw.containTimer > 0,
+      signature: here ? +c.signature[z].toFixed(0) : undefined,
+      is_exit: EXITS.includes(z),
+      exit_threshold: EXIT_THRESH[z],
+      adjacent: ADJ[z],
     };
   }
-  // a colony's view
-  const c = world.colonies[factionId];
-  if (!c) return null;
-  const rivalDrain = Math.max(0, world.totalDrainLast - c.lastDrain);
-  const competition = rivalDrain < 1 ? "none" : rivalDrain < 5 ? "low" : rivalDrain < 12 ? "medium" : "high";
+
+  const myDrain = c.lastDrain;
+  const zonesDrain = occupied.reduce((s, z) => s + world.zones[z].drainLast, 0);
+  const rivalDrain = Math.max(0, zonesDrain - myDrain);
+  const competition = rivalDrain < 1 ? "none" : rivalDrain < 6 ? "low" : rivalDrain < 14 ? "medium" : "high";
+
   return {
     faction: "colony", id: c.id, tick: world.tick,
-    me: { load: +c.load.toFixed(1), signature: +c.signature.toFixed(0), detected: +c.detection.toFixed(0) },
-    host: { nutrients: +h.nutrients.toFixed(0), inflammation: +h.inflammation.toFixed(0), health: +h.health.toFixed(0) },
-    competition,                       // intel about unseen rivals (sensed via nutrient scarcity)
-    transmit_threshold: TRANSMIT_THRESHOLD,
-    legal_actions: ["feed", "hide", "transmit"],
-    note: "you cannot see other colonies; 'competition' hints at unseen rivals feeding. Loud feeding raises your signature, which the immune system can detect.",
+    me: {
+      total_load: +totalLoad(c).toFixed(1),
+      dominant_zone: dominantZone(c),
+      detected: +c.lock.toFixed(0),
+      quorum: +quorum(c).toFixed(0),
+      preferred_oxygen: c.preferredO2,
+    },
+    zones: zoneView,
+    host: { integrity: +world.host.integrity.toFixed(0), toxin: +world.host.toxin.toFixed(0) },
+    competition,
+    exits: EXIT_THRESH,
+    quorum_to_transmit: QUORUM_TRANSMIT,
+    quorum_to_toxin: QUORUM_TOXIN,
+    legal_actions: ["feed", "move:<zone>", "hide", "toxin", "transmit"],
+    note: "Can't see other colonies. Grow biomass, migrate (move:zone) to an EXIT zone (gut thr 70 / lung thr 65), then transmit once presence there >= its threshold AND quorum >= 75 AND you're not too recognised. WARNING: mass piling up at an exit LEAKS detection before you escape. Blood is rich (iron) but a kill-zone; lymph is a memory trap.",
+  };
+}
+
+function observeImmune(world) {
+  const zoneReads = {};
+  for (const z of ZONES) {
+    const zw = world.zones[z];
+    let anomalySig = 0;
+    for (const c of Object.values(world.colonies)) {
+      if (c.alive && !c.transmitted && c.presence[z] > 0.5) anomalySig += c.signature[z];
+    }
+    zoneReads[z] = {
+      inflammation: +zw.inflammation.toFixed(0),
+      nutrient_drain: +zw.drainLast.toFixed(0),
+      immune_presence: zw.immune_presence,
+      anomaly: +anomalySig.toFixed(0),
+      contained: zw.containTimer > 0,
+      is_exit: EXITS.includes(z),
+    };
+  }
+
+  const contacts = [];
+  let hiddenThreat = 0;
+  for (const c of Object.values(world.colonies)) {
+    if (!c.alive || c.transmitted) continue;
+    if (c.lock >= DETECT_REVEAL) {
+      const noise = 1 - c.lock / 200;
+      contacts.push({
+        id: c.id,
+        lock: +c.lock.toFixed(0),
+        est_load: +Math.max(0, totalLoad(c) * (0.85 + 0.3 * (1 - noise))).toFixed(0),
+        zones: ZONES.filter((z) => c.presence[z] > 0.5),
+        memory: +c.memory.toFixed(0),
+      });
+    } else {
+      hiddenThreat += sum(c.signature);
+    }
+  }
+
+  return {
+    faction: "immune", tick: world.tick,
+    host: { integrity: +world.host.integrity.toFixed(0), toxin: +world.host.toxin.toFixed(0) },
+    energy: +world.immune.energy.toFixed(1),
+    zones: zoneReads,
+    contacts,
+    hidden_threat: +hiddenThreat.toFixed(0),
+    lock_to_strike: LOCK_TO_STRIKE,
+    legal_actions: ["sweep:<zone>", "scan:<ID>", "strike:<ID>", "contain:<zone>", "tolerize"],
+    note: "You can't see undetected colonies — only per-zone anomalies (inflammation/nutrient_drain/signal). sweep a zone to build recognition (immune_lock) on whatever is there (1.35x at exits); scan:ID to focus a contact; strike:ID needs its lock>=lock_to_strike and hits hardest where immune_presence is high; contain:zone quarantines a zone after a 1-tick delay; tolerize heals the host. Memory makes a known strain re-lock fast even after it hides.",
   };
 }
 
 // ---- one simultaneous tick ------------------------------------------------
-// actions: { [colonyId]: "feed"|"hide"|"transmit", immune: "sweep"|"scan:ID"|"strike:ID"|"contain:ID"|"tolerize" }
 export function resolveEcoTick(world, actions) {
-  const w = structuredCloneish(world);
+  const w = cloneWorld(world);
   const log = [];
-  const live = Object.values(w.colonies).filter((c) => c.alive && !c.transmitted);
+  for (const z of ZONES) { w.zones[z].drainLast = 0; w.zones[z].sweptLast = false; }
+  const live = () => Object.values(w.colonies).filter((c) => c.alive && !c.transmitted);
 
-  // 1. colony feeding — competition for shared nutrients
-  const feeders = live.filter((c) => actions[c.id] === "feed");
-  const demand = {};
-  let totalDemand = 0;
-  for (const c of feeders) { demand[c.id] = 8 * (1 + (10 - c.stealth) / 20); totalDemand += demand[c.id]; }
-  const avail = w.host.nutrients;
-  const scale = totalDemand > avail ? avail / totalDemand : 1;
-  let totalDrain = 0;
-  for (const c of live) {
-    const a = actions[c.id];
+  // 1. colony actions FIRST — they read containment set on a PREVIOUS tick, which
+  //    gives the council's 1-tick escape window before a fresh quarantine bites.
+  for (const c of live()) {
+    const [act, arg] = String(actions[c.id] || "feed").split(":");
     c.lastDrain = 0;
-    if (a === "feed") {
-      const got = demand[c.id] * scale;
-      const grow = got * 0.9;
-      c.load += grow; c.lastDrain = got; totalDrain += got;
-      c.signature += 6 * (1 - 0.5 * (c.stealth / 10)); // loud feeding raises signature
-      w.host.inflammation += 1.5;
-      log.push(`${c.id} feed +${grow.toFixed(1)} (took ${got.toFixed(1)} nutrients)`);
-    } else if (a === "hide") {
-      c.signature *= 0.55; c.detection *= 0.82;
-      log.push(`${c.id} hide`);
-    } else if (a === "transmit") {
-      if (c.load >= TRANSMIT_THRESHOLD) { c.transmitted = true; log.push(`${c.id} TRANSMIT ✓`); }
-      else { c.signature += 10; c.detection += 6; log.push(`${c.id} transmit ✗ (load ${c.load.toFixed(0)})`); }
-    }
+    if (act === "feed") feedColony(w, c, log);
+    else if (act === "move") moveColony(w, c, arg, log);
+    else if (act === "hide") hideColony(c, log);
+    else if (act === "toxin") toxinColony(w, c, log);
+    else if (act === "transmit") tryTransmit(w, c, log);
+    else feedColony(w, c, log);
   }
-  w.host.nutrients = clamp(w.host.nutrients - totalDrain, 0, 100);
-  w.totalDrainLast = totalDrain;
 
   // 2. immune action
   const [iact, itarget] = String(actions.immune || "sweep").split(":");
   const im = w.immune;
   if (iact === "sweep") {
-    for (const c of live) c.detection = clamp(c.detection + 4 + c.signature * 0.12, 0, 100);
-    im.energy += 1;
-    log.push("immune sweep");
-  } else if (iact === "scan") {
-    const c = w.colonies[itarget] || hottestUndetected(live);
-    if (c) { c.detection = clamp(c.detection + 22 + c.signature * 0.1, 0, 100); log.push(`immune scan ${c.id}`); }
+    const z = ZONES.includes(itarget) ? itarget : busiestZone(w);
+    if (z) sweepZone(w, z, log);
     im.energy += 2;
+  } else if (iact === "scan") {
+    const c = w.colonies[itarget] || hottestUndetected(live());
+    if (c) {
+      const gain = (18 + sum(c.signature) * 0.15 + c.memory * 0.4) * (1 + c.memory / 100);
+      c.lock = clamp(c.lock + gain, 0, 100);
+      gainMemory(c, sum(c.signature), 1);
+      log.push(`immune scan ${c.id} (+${gain.toFixed(0)} lock)`);
+    }
+    im.energy -= 1;
   } else if (iact === "strike") {
-    const c = w.colonies[itarget] || hottestContact(live);
-    im.energy -= 3;
-    if (c && c.detection >= 40) {
-      const dmg = 8 + c.detection * 0.12;
-      c.load = Math.max(0, c.load - dmg); w.host.health -= 2; w.host.inflammation += 4;
-      log.push(`immune strike ${c.id} −${dmg.toFixed(1)}`);
-    } else { w.host.health -= 6; w.host.inflammation += 8; log.push("immune strike (no clear target — host hurt)"); }
+    strikeColony(w, w.colonies[itarget] || hottestContact(live()), log);
   } else if (iact === "contain") {
-    const c = w.colonies[itarget] || hottestContact(live);
-    im.energy -= 2;
-    if (c) { c.load *= 0.9; c.signature += 3; w.host.inflammation += 3; log.push(`immune contain ${c.id}`); }
+    const z = ZONES.includes(itarget) ? itarget : busiestZone(w);
+    if (z) { w.zones[z].containTimer = 2; im.energy -= 2; w.zones[z].inflammation += 3; log.push(`immune contain ${z} (arms next tick)`); }
   } else if (iact === "tolerize") {
-    w.host.health = clamp(w.host.health + 5, 0, 100); w.host.inflammation = Math.max(0, w.host.inflammation - 10);
-    im.energy += 3; log.push("immune tolerize");
+    w.host.integrity = clamp(w.host.integrity + 6, 0, 100);
+    for (const z of ZONES) w.zones[z].inflammation = Math.max(0, w.zones[z].inflammation - 6);
+    im.energy += 3;
+    log.push("immune tolerize");
   }
-  im.energy = clamp(im.energy - (w.host.inflammation > 60 ? 1 : 0), 0, 10);
+  const totalInfl = ZONES.reduce((s, z) => s + w.zones[z].inflammation, 0);
+  im.energy = clamp(im.energy - (totalInfl > 120 ? 1 : 0), 0, 12);
 
-  // 3. passive: signatures leak into detection; decay; host upkeep
-  for (const c of live) {
-    c.detection = clamp(c.detection + c.signature * 0.03, 0, 100);
-    c.signature *= 0.9;
-    if (c.load <= 0) { c.alive = false; log.push(`${c.id} cleared`); }
+  // 3. exit pre-transmit detect-pressure (the mandatory anti-camping patch):
+  //    a bulge piling up at an exit leaks signature, inflames the tissue, AND is
+  //    directly visible to the immune system the closer it gets to the threshold.
+  for (const c of live()) {
+    for (const z of EXITS) {
+      const ratio = c.presence[z] / EXIT_THRESH[z];
+      if (ratio >= 0.6) {
+        c.signature[z] += 3;
+        w.zones[z].inflammation += 2;
+        c.lock = clamp(c.lock + 3 + 6 * (ratio - 0.6), 0, 100); // the bulge gives you away
+      }
+    }
   }
-  w.host.inflammation *= 0.92;
-  w.host.health = clamp(w.host.health - w.host.inflammation * 0.03, 0, 100);
-  w.host.nutrients = clamp(w.host.nutrients + 6, 0, 100); // host replenishes
+
+  // 4. passive upkeep
+  upkeep(w, log);
+
   w.tick += 1;
-
   w.outcome = evaluateEco(w);
   w.log = log;
   return w;
 }
 
+// ---- colony action mechanics ----------------------------------------------
+function feedColony(w, c, log) {
+  const z = dominantZone(c);
+  const zw = w.zones[z];
+  const glucoseFactor = clamp(zw.glucose / 60, 0.35, 1.25);
+  const o2match = clamp(1.15 - Math.abs(c.preferredO2 - zw.oxygen) / 120, 0.5, 1.15);
+  const containFactor = zw.containTimer > 0 ? 0.55 : 1;
+  const depleted = c.presence[z] > zw.glucose * 0.8;  // crowding/depletion pushes you out
+  const lymphPenalty = z === "lymph" ? 0.45 : 1;
+  let grow = BASE_GROW * glucoseFactor * o2match * containFactor * lymphPenalty;
+  if (depleted) grow *= 0.7;
+  c.presence[z] += grow;
+  const drained = grow * 1.2;
+  zw.glucose = clamp(zw.glucose - drained, 0, 100);
+  zw.drainLast += drained;
+  c.lastDrain += drained;
+  let sig = (5 + 0.35 * grow) * (1 - 0.45 * (c.stealth / 10));
+  if (depleted) sig *= 1.25;
+  c.signature[z] += sig;
+  zw.inflammation += 2 + 0.15 * grow;
+  if (z === "lymph") { w.host.integrity = clamp(w.host.integrity + 3, 0, 100); gainMemory(c, 0, 1, 4); } // sacrificial pressure-vent
+  log.push(`${c.id} feed@${z} +${grow.toFixed(1)}`);
+}
+
+function moveColony(w, c, target, log) {
+  const src = dominantZone(c);
+  const dest = ZONES.includes(target) ? target : null;
+  if (!dest || !ADJ[src].includes(dest)) { log.push(`${c.id} move ✗ (${src}->${target} not adjacent)`); return; }
+  const amount = c.presence[src] * 0.4;
+  const blocked = (w.zones[src].containTimer > 0 || w.zones[dest].containTimer > 0) ? 0.35 : 0;
+  const success = clamp(0.85 - blocked - 0.10 * w.zones[dest].immune_presence, 0.4, 0.95);
+  const arrived = amount * success;
+  c.presence[src] -= amount;
+  c.presence[dest] += arrived;
+  c.signature[src] += 4 + 0.15 * amount;
+  c.signature[dest] += 6 + 0.20 * arrived;
+  if (dest === "blood") { c.signature.blood += 8; if (w.zones.blood.sweptLast) c.lock = clamp(c.lock + 4, 0, 100); }
+  log.push(`${c.id} move ${src}->${dest} (${arrived.toFixed(1)}${success < 0.9 ? `, lost ${(amount - arrived).toFixed(1)}` : ""})`);
+}
+
+function hideColony(c, log) {
+  const floor = c.memory * 0.15; // memory leaves an immunological trace you can't scrub
+  for (const z of ZONES) c.signature[z] = Math.max(floor, c.signature[z] * 0.45);
+  log.push(`${c.id} hide`);
+}
+
+function toxinColony(w, c, log) {
+  if (quorum(c) < QUORUM_TOXIN) { c.signature[dominantZone(c)] += 4; log.push(`${c.id} toxin ✗ (no quorum)`); return; }
+  const z = dominantZone(c);
+  const zw = w.zones[z];
+  if (zw.iron < 8) { c.signature[z] += 4; log.push(`${c.id} toxin ✗ (no iron in ${z})`); return; }
+  zw.iron = clamp(zw.iron - 8, 0, 100);
+  c.presence[z] = Math.max(0, c.presence[z] - 10);     // toxins cost you 10 biomass (anti-grief)
+  w.host.toxin = clamp(w.host.toxin + 10, 0, 100);
+  w.host.integrity -= 4;
+  zw.inflammation += 6;
+  c.signature[z] += 35;
+  c.lock = clamp(c.lock + 0.5 * w.host.toxin, 0, 100);
+  const dmg = 8 + 0.12 * w.host.toxin;
+  for (const rival of Object.values(w.colonies)) {
+    if (rival.id === c.id || !rival.alive || rival.transmitted) continue;
+    if (rival.presence[z] > 0.5) rival.presence[z] = Math.max(0, rival.presence[z] - dmg);
+  }
+  log.push(`${c.id} toxin@${z} (host toxin ${w.host.toxin.toFixed(0)}, −${dmg.toFixed(0)} to rivals here)`);
+}
+
+function tryTransmit(w, c, log) {
+  const toxinThrMul = w.host.toxin >= 30 ? 1.2 : 1;     // a toxic host is harder to escape
+  const exitZone = EXITS
+    .filter((z) => c.presence[z] >= EXIT_THRESH[z] * toxinThrMul)
+    .sort((a, b) => c.presence[b] - c.presence[a])[0];
+  const ok = exitZone && quorum(c) >= QUORUM_TRANSMIT && c.lock < LOCK_TO_TRANSMIT && w.host.integrity >= HOST_MIN_TRANSMIT;
+  if (ok) { c.transmitted = true; log.push(`${c.id} TRANSMIT ✓ via ${exitZone}`); }
+  else {
+    for (const z of EXITS) c.signature[z] += 8;
+    c.lock = clamp(c.lock + 5, 0, 100);
+    log.push(`${c.id} transmit ✗ (need exit presence + quorum>=${QUORUM_TRANSMIT} + lock<${LOCK_TO_TRANSMIT})`);
+  }
+}
+
+// ---- immune action mechanics ----------------------------------------------
+function sweepZone(w, z, log) {
+  const zw = w.zones[z];
+  zw.sweptLast = true;
+  const exitMul = EXITS.includes(z) ? 1.35 : 1;
+  for (const c of Object.values(w.colonies)) {
+    if (!c.alive || c.transmitted || c.presence[z] <= 0.5) continue;
+    const gain = (10 * zw.immune_presence + 0.12 * c.signature[z]) * (1 + c.memory / 100) * exitMul * 0.5;
+    c.lock = clamp(c.lock + gain, 0, 100);
+    gainMemory(c, c.signature[z], z === "lymph" ? 2 : 1);
+  }
+  log.push(`immune sweep ${z}`);
+}
+
+function strikeColony(w, c, log) {
+  w.immune.energy -= 3;
+  if (!c || !c.alive || c.transmitted || c.lock < LOCK_TO_STRIKE) {
+    w.host.integrity -= 4;
+    if (c) c.signature[dominantZone(c)] += 2;
+    log.push("immune strike ✗ (no locked target — host hurt)");
+    return;
+  }
+  const z = ZONES.filter((zz) => c.presence[zz] > 0.5)
+    .sort((a, b) => (c.presence[b] * w.zones[b].immune_presence) - (c.presence[a] * w.zones[a].immune_presence))[0]
+    || dominantZone(c);
+  const lockFactor = 0.75 + c.lock / 100;
+  const dmg = 10 * w.zones[z].immune_presence * lockFactor;
+  c.presence[z] = Math.max(0, c.presence[z] - dmg);
+  c.lock = Math.max(0, c.lock - 18);
+  w.zones[z].inflammation += 6;
+  w.host.integrity -= 2;
+  log.push(`immune strike ${c.id}@${z} −${dmg.toFixed(1)}`);
+}
+
+function gainMemory(c, detectedSig, mul = 1, flat = 0) {
+  c.memory = Math.min(MEMORY_CAP, c.memory + (0.06 * detectedSig * mul) + flat);
+}
+
+// ---- passive upkeep --------------------------------------------------------
+function upkeep(w, log) {
+  for (const c of Object.values(w.colonies)) {
+    if (!c.alive || c.transmitted) continue;
+    // recognition leaks from signature (weighted by immune strength) AND from sheer
+    // biomass — a large bulge of cells is intrinsically hard to hide anywhere.
+    let passive = 0;
+    let maxPresence = 0;
+    for (const z of ZONES) {
+      passive += c.signature[z] * 0.08 * w.zones[z].immune_presence;
+      if (c.presence[z] > maxPresence) maxPresence = c.presence[z];
+    }
+    passive += maxPresence * 0.045;
+    c.lock = clamp(c.lock + passive, 0, 100);
+    c.lock = Math.max(c.lock - 3, c.memory * 0.25); // decays, memory floors it (soft enrage)
+    for (const z of ZONES) c.signature[z] *= 0.85;
+    if (totalLoad(c) <= 0.5) { c.alive = false; log.push(`${c.id} cleared`); }
+  }
+  let totalInfl = 0;
+  for (const z of ZONES) {
+    const zw = w.zones[z];
+    zw.inflammation = Math.max(0, zw.inflammation - 4) * 0.92;
+    totalInfl += zw.inflammation;
+    if (zw.containTimer > 0) zw.containTimer -= 1;
+    const regenMul = clamp(1 - zw.inflammation / 100, 0.35, 1.0);
+    zw.glucose = clamp(zw.glucose + ZONE_BASE[z].g_regen * regenMul, 0, ZONE_BASE[z].glucose);
+    zw.iron = clamp(zw.iron + ZONE_BASE[z].i_regen * regenMul, 0, ZONE_BASE[z].iron);
+  }
+  w.host.toxin = clamp(w.host.toxin * 0.85, 0, 100);
+  w.host.integrity = clamp(w.host.integrity - w.host.toxin * 0.06 - totalInfl * 0.01, 0, 100);
+}
+
+// ---- helpers ---------------------------------------------------------------
+function zoneOccupancy(w, z) {
+  let s = 0;
+  for (const c of Object.values(w.colonies)) if (c.alive && !c.transmitted) s += c.presence[z];
+  return s;
+}
+function busiestZone(w) {
+  return ZONES.map((z) => [z, zoneOccupancy(w, z) + w.zones[z].inflammation])
+    .sort((a, b) => b[1] - a[1])[0][0];
+}
 function hottestContact(live) {
-  const c = live.filter((x) => x.detection >= 40).sort((a, b) => b.load - a.load)[0];
-  return c || null;
+  return live.filter((x) => x.lock >= LOCK_TO_STRIKE).sort((a, b) => totalLoad(b) - totalLoad(a))[0] || null;
 }
 function hottestUndetected(live) {
-  return live.filter((x) => x.detection < DETECT_REVEAL).sort((a, b) => b.signature - a.signature)[0] || null;
+  return live.filter((x) => x.lock < DETECT_REVEAL).sort((a, b) => sum(b.signature) - sum(a.signature))[0] || null;
 }
 
 export function evaluateEco(w) {
   for (const c of Object.values(w.colonies)) {
     if (c.transmitted) return { type: "transmit", winner: c.id, reason: `${c.id} transmitted` };
   }
-  if (w.host.health <= 0) return { type: "host_death", winner: "none", reason: "host died (everyone loses)" };
+  if (w.host.integrity <= 0) return { type: "host_death", winner: "none", reason: "host died (everyone loses)" };
   const liveCount = Object.values(w.colonies).filter((c) => c.alive && !c.transmitted).length;
   if (liveCount === 0) return { type: "cleared", winner: "immune", reason: "all colonies cleared" };
   if (w.tick >= MAX_TICKS) return { type: "contained", winner: "immune", reason: "immune contained everything to the time limit" };
@@ -181,27 +467,47 @@ export function evaluateEco(w) {
 
 // ---- default policies (heuristic baselines) -------------------------------
 export function defaultColonyPolicy(o) {
-  if (o.me.load >= o.transmit_threshold && o.me.detected < 55) return "transmit";
-  if (o.me.detected >= 45 || o.me.signature >= 30) return "hide";
+  const dom = o.me.dominant_zone;
+  const here = o.zones[dom] || {};
+  if (EXITS.includes(dom) && here.mine >= (o.exits[dom] || 70) && o.me.quorum >= o.quorum_to_transmit && o.me.detected < LOCK_TO_TRANSMIT) return "transmit";
+  if (o.me.detected >= 55) return "hide";
+  if (o.me.total_load >= 40 && !EXITS.includes(dom)) {
+    const exitNeighbor = (here.adjacent || []).filter((z) => EXITS.includes(z))
+      .sort((a, b) => (o.zones[a]?.immune_pressure ?? 9) - (o.zones[b]?.immune_pressure ?? 9))[0];
+    if (exitNeighbor && !o.zones[exitNeighbor]?.contained) return "move:" + exitNeighbor;
+    if ((here.adjacent || []).includes("blood")) return "move:blood";
+  }
   return "feed";
 }
+
 export function defaultImmunePolicy(o) {
-  if (o.host.health <= 45 || o.host.inflammation >= 65) return "tolerize";
-  const ready = o.contacts.filter((c) => c.detection >= 40).sort((a, b) => b.est_load - a.est_load)[0];
-  if (ready && o.energy >= 3 && ready.est_load >= 35) return "strike:" + ready.id;
-  const known = o.contacts.sort((a, b) => b.est_load - a.est_load)[0];
-  if (known && o.energy >= 2 && known.est_load >= 30) return "contain:" + known.id;
-  if (o.hidden_threat >= 15) return "scan"; // something's out there — go find it
-  return "sweep";
+  if (o.host.integrity <= 35 || o.host.toxin >= 45) return "tolerize";
+  const ready = o.contacts.filter((c) => c.lock >= o.lock_to_strike).sort((a, b) => b.est_load - a.est_load)[0];
+  if (ready && o.energy >= 3 && ready.est_load >= 18) return "strike:" + ready.id;
+  const climbing = o.contacts.filter((c) => c.lock < o.lock_to_strike).sort((a, b) => b.est_load - a.est_load)[0];
+  if (climbing) {
+    const exitZone = (climbing.zones || []).find((z) => z === "gut" || z === "lung");
+    if (exitZone && o.energy >= 2 && !o.zones[exitZone]?.contained) return "contain:" + exitZone;
+    return "scan:" + climbing.id;
+  }
+  // nothing locked — sweep the noisiest zone, biasing toward exits (their pre-transmit leak)
+  const noisy = ZONES.map((z) => [z, (o.zones[z]?.anomaly ?? 0) + (o.zones[z]?.nutrient_drain ?? 0) + (o.zones[z]?.is_exit ? 5 : 0)])
+    .sort((a, b) => b[1] - a[1])[0];
+  return "sweep:" + noisy[0];
 }
 
-// structuredClone exists in modern node/browser; fall back to a shallow-ish clone.
-function structuredCloneish(w) {
+// ---- cloning ---------------------------------------------------------------
+function cloneWorld(w) {
   try { return structuredClone(w); }
   catch {
     return {
-      ...w, host: { ...w.host }, immune: { ...w.immune },
-      colonies: Object.fromEntries(Object.entries(w.colonies).map(([k, v]) => [k, { ...v }])),
+      ...w,
+      host: { ...w.host },
+      immune: { ...w.immune },
+      zones: Object.fromEntries(Object.entries(w.zones).map(([k, v]) => [k, { ...v }])),
+      colonies: Object.fromEntries(Object.entries(w.colonies).map(([k, v]) => [k, {
+        ...v, presence: { ...v.presence }, signature: { ...v.signature },
+      }])),
       log: [],
     };
   }
