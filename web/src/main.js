@@ -34,7 +34,7 @@ import { flash, shake, popNumber } from "./juice.js?v=2";
 import { hint } from "./hints.js?v=2";
 import { buildAutopsy, renderAutopsy } from "./autopsy.js?v=2";
 import { saveRun, bestTransmissionTurn } from "./history.js?v=2";
-import { initAudio, play, setMuted, isMuted } from "./audio.js?v=2";
+import { initAudio, play, setMuted, isMuted, setHum, stopHum } from "./audio.js?v=2";
 import { countUp, burst } from "./fx.js?v=2";
 import { isFirstVisit, markSeen, openHowTo, closeHowTo } from "./tutorial.js?v=2";
 
@@ -77,6 +77,7 @@ const els = {
   fixation: $("fixation"),
   fixationFill: $("fixation-fill"),
   speedToggle: $("speed-toggle"),
+  autoToggle: $("auto-toggle"),
   // play body
   canvas: $("colony-canvas"),
   hint: $("hint"),
@@ -102,6 +103,8 @@ let history = []; // [{ state, action }] — pre-action snapshots, consumed by a
 let awaitingMutation = false; // true while the mutation modal is blocking input
 let beatActive = false; // true while a turn's consequence is playing out (input locked)
 let speed = 1; // simulation speed: 1 | 2 | 4 (scales the beat duration)
+let autoPlay = false; // auto-repeat the last action until a decisive moment
+let lastAction = null; // last action chosen (what auto-play repeats)
 
 const BEAT_BASE_MS = 750;
 function beatDuration() { return Math.max(220, BEAT_BASE_MS / speed); }
@@ -144,6 +147,8 @@ function clear(node) {
 // ----------------------------------------------------------------------------
 function renderMenu() {
   stopColony();
+  stopHum();
+  autoPlay = false; refreshAutoToggle();
   const best = bestTransmissionTurn();
   els.bestScore.textContent = best == null ? "—" : String(best);
   setSummary("Strain. Choose a strain to begin a new run.");
@@ -155,6 +160,8 @@ function renderMenu() {
 // ----------------------------------------------------------------------------
 function renderBuild() {
   stopColony();
+  stopHum();
+  autoPlay = false; refreshAutoToggle();
   mountBuildScreen(els.buildRoot, startRun);
   setSummary(
     "Build screen. Pick a proven strain or allocate a custom genome of " +
@@ -171,6 +178,8 @@ function startRun(selectedBuild) {
   state = freshState();
   history = [];
   awaitingMutation = false;
+  lastAction = null;
+  refreshAutoToggle();
 
   els.strainTitle.textContent = build.name || "Strain";
   clear(els.log);
@@ -194,6 +203,8 @@ function startRun(selectedBuild) {
 function onAction(action) {
   if (!state || awaitingMutation || beatActive) return;
   if (state.transmitted || evaluate(state)) return; // already terminal
+
+  lastAction = action; // auto-play repeats whatever you last chose
 
   // Engine step (numbers are known immediately).
   const [next, log] = resolve(action, state, build);
@@ -236,6 +247,39 @@ function afterBeat() {
   }
 
   setActionsEnabled(true);
+
+  // Auto-play: repeat the last action, but hand control back at decisive moments.
+  if (autoPlay && lastAction && !shouldPauseAuto()) {
+    window.setTimeout(() => {
+      if (autoPlay && !beatActive && !awaitingMutation && state && !evaluate(state)) {
+        onAction(lastAction);
+      }
+    }, 80);
+  }
+}
+
+// Auto-play yields control when a transmit is on the table or the endgame is near.
+function shouldPauseAuto() {
+  if (!state || !build) return true;
+  const eff = state.colony_load * (0.5 + build.adhesion / 10);
+  const canTransmit = state.transmission_window > 0 && eff >= T_THRESH;
+  return canTransmit || state.turn / MAX_TURNS >= 0.8;
+}
+
+function refreshAutoToggle() {
+  if (!els.autoToggle) return;
+  els.autoToggle.textContent = autoPlay ? "⏸" : "⏵";
+  els.autoToggle.setAttribute("aria-pressed", String(autoPlay));
+  els.autoToggle.setAttribute("aria-label", autoPlay ? "Stop auto-play" : "Auto-play");
+}
+
+function toggleAuto() {
+  autoPlay = !autoPlay;
+  refreshAutoToggle();
+  if (autoPlay && state && !beatActive && !awaitingMutation && !evaluate(state)) {
+    if (!lastAction) lastAction = "replicate";
+    if (!shouldPauseAuto()) onAction(lastAction);
+  }
 }
 
 function promptMutation(choices) {
@@ -270,6 +314,8 @@ function finishRun(verdict) {
   const [outcome, title, detail] = verdict;
   setActionsEnabled(false);
   stopColony();
+  stopHum();
+  autoPlay = false; refreshAutoToggle();
 
   const record = {
     strain: build.key || build.name,
@@ -401,6 +447,7 @@ function render() {
       fix >= 75 ? "var(--danger)" : fix >= 45 ? "var(--warning)" : "var(--accent)";
   }
   if (els.fixation) els.fixation.textContent = Math.round(fix) + "%";
+  setHum(fix / 100); // tension hum rises as the host corners you
 
   // Window pill (glow when open; success-tinted when a transmit would land).
   renderWindowPill();
@@ -621,6 +668,8 @@ function init() {
   } catch { /* ignore */ }
   if (els.speedToggle) els.speedToggle.addEventListener("click", cycleSpeed);
   refreshSpeedToggle();
+  if (els.autoToggle) els.autoToggle.addEventListener("click", toggleAuto);
+  refreshAutoToggle();
 
   // Onboarding: intro screen + how-to overlay.
   if (els.introContinue)

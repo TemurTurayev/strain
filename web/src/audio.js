@@ -13,6 +13,7 @@ const STORAGE_KEY = "strain.muted";
 let ctx = null;
 let master = null;
 let muted = readMutedFromStorage();
+let humOsc = null, humGain = null; // continuous low pressure hum (rises with tension)
 
 // name → { wave, freq (Hz), dur (s), gain (peak) }
 // Each event is a distinct pitch/timbre so the ear can tell them apart.
@@ -149,4 +150,49 @@ export function setMuted(value) {
 /** Current mute state (convenience for the UI toggle's initial label). */
 export function isMuted() {
   return muted;
+}
+
+// ---------------------------------------------------------------------------
+// Continuous tension hum: a low sine whose volume + pitch rise with `level`
+// (0..1). Routed through master, so global mute silences it too. No-op until
+// the AudioContext exists (i.e. after a user gesture).
+// ---------------------------------------------------------------------------
+function ensureHum() {
+  if (humOsc || !ctx || !master) return;
+  try {
+    humOsc = ctx.createOscillator();
+    humGain = ctx.createGain();
+    humOsc.type = "sine";
+    humOsc.frequency.value = 42;
+    humGain.gain.value = 0;
+    humOsc.connect(humGain);
+    humGain.connect(master);
+    humOsc.start();
+  } catch {
+    humOsc = null;
+    humGain = null;
+  }
+}
+
+/** Set the tension hum intensity. level 0..1. */
+export function setHum(level) {
+  if (!ctx) return;
+  ensureHum();
+  if (!humGain || !humOsc) return;
+  const l = Math.max(0, Math.min(1, level));
+  try {
+    humGain.gain.setTargetAtTime(l * l * 0.09, ctx.currentTime, 0.3);
+    humOsc.frequency.setTargetAtTime(40 + l * 34, ctx.currentTime, 0.3);
+  } catch {
+    /* never throw from audio */
+  }
+}
+
+/** Fade the hum out (call when leaving the play screen). */
+export function stopHum() {
+  try {
+    if (humGain && ctx) humGain.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
+  } catch {
+    /* ignore */
+  }
 }
