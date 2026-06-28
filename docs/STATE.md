@@ -95,9 +95,13 @@ Enrichment roadmap `docs/plans/2026-06-27-enrichment-roadmap.md` — progress:
   though with 2 exits it can still only block one, so a colony usually escapes the other
   (the intended hidden-info tension). Solo deliberately NOT changed (protected; the
   feedback's nonlinear-lock fix doesn't fit solo's low-load window win-path — no-op).
-  Inherent limit (accepted): LLMs rush the simple feed→transmit path (~8 ticks), so the
-  intel layer (scout/snitch/investigate) stays an OPTIONAL tool, not mandatory — slowing
-  transmit enough to force it would break the feedback-target balance.
+  Inherent limit (accepted): LLMs rush the simple feed→transmit path, so the intel layer
+  (scout/snitch/investigate) stays an OPTIONAL tool, not mandatory.
+- ✅ VALIDATED in a MODEL TOURNAMENT (`agent/eco_arena.mjs --llm=gemini,codex,claude`):
+  the immune now WINS LLM games (2 of 3 — Claude & Codex as immune contained to t60),
+  up from 0% before the feedback fixes. The two-step transmit + nonlinear lock + sharper
+  prompts made the LLM immune genuinely competitive and the games full-length. This
+  closes the feedback loop: diagnosed (immune always loses) → fixed → verified.
 - Genuinely-remaining (v2, council-deferred): richer arena (drama pacing / leaderboard /
   tournament). In-browser "record an LLM match" button isn't feasible client-side (no CLI
   in the browser) — recording stays a `node agent/record.mjs` step. Solo "too easy for an
