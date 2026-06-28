@@ -1,7 +1,7 @@
 import { lerpFrame, eventsAt, loadReplay, normalizeTranscript, validateReplay } from "./replay.js?v=1";
 import { runLiveGame } from "./live.js?v=1";
 
-export function mountControls({ mountEl, viewer, panels, replay }) {
+export function mountControls({ mountEl, viewer, panels, replay, theme }) {
   let tick = 0;
   let alpha = 0;
   let speed = 1;
@@ -9,7 +9,7 @@ export function mountControls({ mountEl, viewer, panels, replay }) {
   let raf = null;
   let lastTime = 0;
   let revealTruth = false;
-  let theme = {};
+  theme = theme || {}; // carries factionColors + (per loaded replay) config for the renderer
 
   mountEl.innerHTML = `
     <div style="display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: var(--surface); border-top: 1px solid var(--border); overflow-x: auto;">
@@ -168,13 +168,15 @@ export function mountControls({ mountEl, viewer, panels, replay }) {
      replay = newReplay;
      tick = 0;
      alpha = 0;
-     
+     if (replay && replay.config) theme.config = replay.config; // exit thresholds etc. for the renderer
+
      if (replay && replay.frames && replay.frames[0] && replay.frames[0].colonies) {
-         let html = '<option value="">All Factions</option><option value="immune">Immune</option>';
-         for (let id of Object.keys(replay.frames[0].colonies)) {
-             html += `<option value="${id}">Colony ${id}</option>`;
-         }
-         selFaction.innerHTML = html;
+         // build faction options via DOM (textContent) — never interpolate replay ids into innerHTML
+         selFaction.textContent = "";
+         const add = (value, text) => { const o = document.createElement("option"); o.value = value; o.textContent = text; selFaction.appendChild(o); };
+         add("", "All factions");
+         add("immune", "Immune");
+         for (const id of Object.keys(replay.frames[0].colonies)) add(id, `Colony ${id}`);
      }
 
      updateFrame();

@@ -71,7 +71,7 @@ export function mountViewer(canvas) {
       if (heat > 4) { ctx.beginPath(); ctx.arc(c.x, c.y, r + 5, 0, 7); ctx.lineWidth = 3; ctx.strokeStyle = `rgba(255,60,60,${Math.min(0.85, heat / 160)})`; ctx.stroke(); }
 
       if (isExit(z)) {
-        const thr = EXIT_THRESH[z] || 70;
+        const thr = ((theme.config && theme.config.EXIT_THRESH) || EXIT_THRESH)[z] || 70;
         let ratio = 0; for (const id in cols) ratio = Math.max(ratio, ((cols[id].presence || {})[z] || 0) / thr);
         const rr = r + 9 + (ratio >= 0.6 ? Math.sin(t * 5) * 3 * ratio : 0);
         ctx.beginPath(); ctx.arc(c.x, c.y, rr, 0, 7); ctx.lineWidth = ratio >= 0.6 ? 3 : 2;

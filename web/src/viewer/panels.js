@@ -1,50 +1,45 @@
+// panels.js — DOM side panels showing each faction's PRIVATE view (fog of war),
+// with an optional ground-truth overlay. All replay-derived values go through
+// textContent (never innerHTML), so a loaded JSON can't inject markup/script.
 export function mountPanels(rootEl) {
   let activeFaction = null;
 
-  function setActiveFaction(id) {
-    activeFaction = id;
-  }
+  function setActiveFaction(id) { activeFaction = id; }
 
-  function update(frame, { revealTruth }) {
+  function el(tag, text, styles) {
+    const e = document.createElement(tag);
+    if (text != null) e.textContent = text;
+    if (styles) Object.assign(e.style, styles);
+    return e;
+  }
+  function safeJson(v) { try { return JSON.stringify(v, null, 2); } catch { return String(v); } }
+
+  function update(frame, opts) {
+    const revealTruth = opts && opts.revealTruth;
     if (!rootEl) return;
+    rootEl.textContent = "";
     if (!frame) return;
-    
-    rootEl.innerHTML = "";
 
     if (!frame.views) {
-       rootEl.innerHTML = "<div style='padding: 20px; color: #888;'>Private view not recorded</div>";
-       return;
+      rootEl.appendChild(el("div", "Private view not recorded", { padding: "20px", color: "#888" }));
+      return;
     }
-
-    let view = null;
-    if (activeFaction && activeFaction !== "") {
-       view = frame.views[activeFaction];
-    } else {
-       view = frame.views["immune"] || Object.values(frame.views)[0];
-    }
-
+    const view = (activeFaction && frame.views[activeFaction]) || frame.views.immune || Object.values(frame.views)[0];
     if (!view) {
-       rootEl.innerHTML = "<div style='padding: 20px; color: #888;'>No view data</div>";
-       return;
+      rootEl.appendChild(el("div", "No view data", { padding: "20px", color: "#888" }));
+      return;
     }
 
-    let html = `<div style="padding: 14px; font-family: monospace; font-size: 13px; color: var(--text);">`;
-    html += `<h4 style="margin-top:0; margin-bottom: 8px;">Faction View: ${activeFaction || "Default"}</h4>`;
-    
-    html += `<pre style="white-space: pre-wrap; word-wrap: break-word; color: var(--text-2);">${JSON.stringify(view, null, 2)}</pre>`;
-    
+    const wrap = el("div", null, { padding: "14px", fontFamily: "ui-monospace, monospace", fontSize: "13px", color: "var(--text)" });
+    wrap.appendChild(el("h4", `Faction view: ${activeFaction || "immune"}`, { margin: "0 0 8px" }));
+    wrap.appendChild(el("pre", safeJson(view), { whiteSpace: "pre-wrap", wordWrap: "break-word", color: "var(--text-2)" }));
+
     if (revealTruth) {
-       html += `<h4 style="margin-top: 16px; margin-bottom: 8px;">Ground Truth Overlay</h4>`;
-       if (frame.colonies) {
-           html += `<pre style="white-space: pre-wrap; word-wrap: break-word; color: var(--text-2);">${JSON.stringify(frame.colonies, null, 2)}</pre>`;
-       }
-       if (frame.zones) {
-           html += `<pre style="white-space: pre-wrap; word-wrap: break-word; color: var(--text-2);">${JSON.stringify(frame.zones, null, 2)}</pre>`;
-       }
+      wrap.appendChild(el("h4", "Ground truth (omniscient)", { margin: "16px 0 8px" }));
+      if (frame.colonies) wrap.appendChild(el("pre", safeJson(frame.colonies), { whiteSpace: "pre-wrap", wordWrap: "break-word", color: "var(--text-2)" }));
+      if (frame.zones) wrap.appendChild(el("pre", safeJson(frame.zones), { whiteSpace: "pre-wrap", wordWrap: "break-word", color: "var(--text-2)" }));
     }
-    
-    html += `</div>`;
-    rootEl.innerHTML = html;
+    rootEl.appendChild(wrap);
   }
 
   return { update, setActiveFaction };

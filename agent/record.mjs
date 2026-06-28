@@ -18,12 +18,17 @@ export async function recordEcosystem({ genomes, controllers, seed = "rec", sour
   for (let i = 0; i < MAX_TICKS + 2 && !w.outcome; i++) {
     const factionList = [...ids.filter((id) => w.colonies[id].alive && !w.colonies[id].transmitted), "immune"];
     const actions = {};
-    for (const f of factionList) actions[f] = await Promise.resolve(controllers[f](observeEco(w, f)));
+    for (const f of factionList) {
+      const fallback = f === "immune" ? "sweep" : "feed";
+      const ctl = controllers[f];
+      try { actions[f] = ctl ? (await Promise.resolve(ctl(observeEco(w, f)))) || fallback : fallback; }
+      catch (e) { console.error(`controller ${f} failed: ${e?.message || e} — defaulting to ${fallback}`); actions[f] = fallback; }
+    }
     const next = resolveEcoTick(w, actions);
     frames.push(buildFrame(w, actions, next.log));
     w = next;
   }
-  frames.push(buildFrame(w, {}, w.log));
+  frames.push(buildFrame(w, {}, [])); // terminal frame: no transition log (would replay the last tick's events)
 
   const colonyMeta = {};
   ids.sort().forEach((id, k) => { colonyMeta[id] = { color: PALETTE[k % PALETTE.length], label: `Strain ${id}` }; });

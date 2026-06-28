@@ -13,7 +13,11 @@ let isMatrix = false;
 let GAMES = 300;
 for (const arg of process.argv.slice(2)) {
   if (arg === "matrix") isMatrix = true;
-  else if (!isNaN(Number(arg))) GAMES = Number(arg);
+  else if (!isNaN(Number(arg))) {
+    const n = Math.floor(Number(arg));
+    if (Number.isFinite(n) && n > 0) GAMES = n;
+    else { console.error(`invalid game count "${arg}" — need a finite positive integer`); process.exit(1); }
+  }
 }
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];

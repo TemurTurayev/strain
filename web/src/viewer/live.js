@@ -106,7 +106,7 @@ export function runLiveGame({ seed, genomes, controllers } = {}) {
     frames.push(buildFrame(w, actions, next.log));
     w = next;
   }
-  frames.push(buildFrame(w, {}, w.log)); // terminal state
+  frames.push(buildFrame(w, {}, [])); // terminal state — no transition, so no log (avoids replaying the last tick's events)
 
   const meta = {};
   ids.sort().forEach((id, k) => { meta[id] = { color: PALETTE[k % PALETTE.length], label: `Strain ${id}` }; });

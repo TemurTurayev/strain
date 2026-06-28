@@ -2,6 +2,7 @@ import { mountViewer } from "./render.js?v=1";
 import { mountPanels } from "./panels.js?v=1";
 import { mountControls } from "./controls.js?v=1";
 import { initGraph } from "./graph.js?v=1";
+import { runLiveGame } from "./live.js?v=1";
 
 export function mountEcoViewer(rootEl) {
   const style = getComputedStyle(document.documentElement);
@@ -45,7 +46,7 @@ export function mountEcoViewer(rootEl) {
   ro.observe(rootEl.querySelector("#graph-container"));
 
   const panels = mountPanels(panelsEl);
-  const controls = mountControls({ mountEl: controlsEl, viewer, panels, replay: null });
+  const controls = mountControls({ mountEl: controlsEl, viewer, panels, replay: null, theme });
 
   initGraph({});
 
@@ -55,6 +56,7 @@ export function mountEcoViewer(rootEl) {
   }
 
   function runLive(opts) {
+     if (opts && (opts.seed || opts.genomes || opts.controllers)) { load(runLiveGame(opts)); return; }
      const btnLive = controlsEl.querySelector("#ctrl-live");
      if (btnLive) btnLive.click();
   }
