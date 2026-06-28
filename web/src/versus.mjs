@@ -8,7 +8,7 @@
 // at the cost of inflammation, energy, and host health; killing the host is a
 // mutual loss, so neither side wants it.
 
-export const WINDOW_THRESHOLD = 30;   // transmission_window needed to transmit
+export const WINDOW_THRESHOLD = 26;   // transmission_window needed to transmit
 export const LOAD_THRESHOLD = 40;     // colony_load needed to transmit
 export const MAX_TICKS = 80;
 const CARRY = 300;
@@ -154,7 +154,7 @@ export function resolveTick(state, colonyAction, immuneAction) {
   }
 
   // ---- 6. decay + energy regen ----
-  s.transmission_window *= 0.80;
+  s.transmission_window *= 0.84;
   s.inflammation *= 0.94;
   s.immune_lockon *= colonyAction === "suppress" ? 0.82 : 0.96;
   let regen = 1; if (s.inflammation > 60) regen -= 1; if (s.host_stability < 40) regen -= 1;
