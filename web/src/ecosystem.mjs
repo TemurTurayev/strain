@@ -41,7 +41,7 @@ export const QUORUM_TRANSMIT = 75;  // quorum needed to transmit (total_load ~60
 export const QUORUM_TOXIN = 35;     // quorum needed to release toxins (total_load ~28)
 export const DETECT_REVEAL = 25;    // immune_lock above which a colony becomes a visible "contact"
 export const LOCK_TO_STRIKE = 40;   // immune_lock needed before a strike actually bites
-export const LOCK_TO_TRANSMIT = 65; // above this recognition, the exit is too watched to slip out
+export const LOCK_TO_TRANSMIT = 70; // above this recognition, the exit is too watched to slip out
 const MEMORY_CAP = 80;
 const HOST_MIN_TRANSMIT = 25;       // a dying host can't be transmitted from
 const BASE_GROW = 8;
@@ -97,6 +97,7 @@ export function freshEcosystem(genomes) {
       lastScout: null, // most recent recon readout (surfaced once, then cleared)
       resistance: 0,  // A1: adaptation to being struck — softens repeated strikes (immune-owned, hidden)
       virulence: 0,   // A3: toxin-built aggression — feed kicker + a standing detection tax (colony-owned)
+      preparing: 0,   // two-step transmit: a colony must telegraph (expose) one tick before it can escape
     };
   }
   const zones = {};
@@ -224,6 +225,7 @@ function observeImmune(world) {
         zones: ZONES.filter((z) => c.presence[z] > 0.5),
         memory: +c.memory.toFixed(0),
         adapted: +(c.resistance * 100).toFixed(0), // A1: immune feels its strikes landing softer (% damage absorbed)
+        escaping: c.preparing > 0,                 // telegraph: this colony is mid-transmit — last chance to recognise it
       });
     } else {
       hiddenThreat += sum(c.signature);
@@ -464,13 +466,26 @@ function tryTransmit(w, c, log) {
   const exitZone = EXITS
     .filter((z) => c.presence[z] >= EXIT_THRESH[z] * toxinThrMul)
     .sort((a, b) => c.presence[b] - c.presence[a])[0];
-  const ok = exitZone && quorum(c) >= QUORUM_TRANSMIT && c.lock < LOCK_TO_TRANSMIT && w.host.integrity >= HOST_MIN_TRANSMIT;
-  if (ok) { c.transmitted = true; log.push(`${c.id} TRANSMIT ✓ via ${exitZone}`); }
-  else {
+  const ready = exitZone && quorum(c) >= QUORUM_TRANSMIT && w.host.integrity >= HOST_MIN_TRANSMIT;
+  if (!ready) {
     for (const z of EXITS) c.signature[z] += 8;
     c.lock = clamp(c.lock + 5, 0, 100);
-    log.push(`${c.id} transmit ✗ (need exit presence + quorum>=${QUORUM_TRANSMIT} + lock<${LOCK_TO_TRANSMIT})`);
+    c.preparing = 0;
+    log.push(`${c.id} transmit ✗ (need exit presence + quorum>=${QUORUM_TRANSMIT})`);
+    return;
   }
+  // STEP 1 — telegraph: mobilising to escape costs a tick and a little exposure. The
+  // immune doesn't get a free block; the extra tick just lets its (size-driven) lock
+  // catch up — so a BIG/LOUD colony self-reveals past the cap, a quiet one slips out.
+  if (c.preparing <= 0) {
+    c.preparing = 2;
+    c.signature[exitZone] += 6;
+    log.push(`${c.id} PREPARING transmit via ${exitZone} (exposed for a tick)`);
+    return;
+  }
+  // STEP 2 — escape unless recognition crossed the cap during the telegraph window.
+  if (c.lock < LOCK_TO_TRANSMIT) { c.transmitted = true; log.push(`${c.id} TRANSMIT ✓ via ${exitZone}`); }
+  else { c.preparing = 0; c.signature[exitZone] += 6; log.push(`${c.id} transmit BLOCKED (recognised — must re-prepare)`); }
 }
 
 // ---- immune action mechanics ----------------------------------------------
@@ -481,7 +496,7 @@ function sweepZone(w, z, log) {
   const exitMul = EXITS.includes(z) ? 1.35 : 1;
   for (const c of Object.values(w.colonies)) {
     if (!c.alive || c.transmitted || c.presence[z] <= 0.5) continue;
-    const gain = (10 * zw.immune_presence + 0.12 * c.signature[z]) * (1 + c.memory / 100) * exitMul * 0.45;
+    const gain = (10 * zw.immune_presence + 0.12 * c.signature[z]) * (1 + c.memory / 100) * exitMul * 0.40;
     c.lock = clamp(c.lock + gain, 0, 100);
     gainMemory(c, c.signature[z], z === "lymph" ? 2 : 1);
   }
@@ -526,7 +541,7 @@ function upkeep(w, log) {
     // lets the immune read and intercept a colony before it transmits.
     let passive = 0;
     for (const z of ZONES) passive += c.signature[z] * 0.08 * w.zones[z].immune_presence;
-    passive += Math.pow(totalLoad(c) / 33, 2);
+    passive += Math.pow(totalLoad(c) / 45, 2);
     c.lock = clamp(c.lock + passive, 0, 100);
     c.lock = clamp(c.lock + c.virulence * 1.2, 0, 100);  // A3: virulent strains run loud
     c.lock = Math.max(c.lock - 3, c.memory * 0.25); // decays, memory floors it (soft enrage)
@@ -534,6 +549,7 @@ function upkeep(w, log) {
     c.sm = Math.min(SM_CAP, c.sm + Math.max(0, (quorum(c) - 40) / 15)); // espionage currency
     c.resistance = Math.max(0, c.resistance - 0.04); // A1: adaptation fades if the immune stops hammering
     c.virulence = Math.max(0, c.virulence - 0.1);    // A3: virulence relaxes without fresh toxin
+    if (c.preparing > 0) c.preparing -= 1;           // the transmit window closes if not completed next tick
     if (totalLoad(c) <= 0.5) { c.alive = false; log.push(`${c.id} cleared`); }
   }
   for (const t of w.tips) t.age += 1;
