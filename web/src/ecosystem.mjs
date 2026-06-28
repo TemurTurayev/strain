@@ -71,18 +71,32 @@ export function dominantZone(c) {
   return ZONES.reduce((best, z) => (c.presence[z] > c.presence[best] ? z : best), ZONES[0]);
 }
 
+// ---- organism types (biological realism) ----------------------------------
+// bacterium = acute, clearable, can wall off into a biofilm (chronic but slow);
+// virus = needs host cells, keeps a LATENT reservoir the immune can't clear and
+//   reactivates when immunity wanes (herpes/HIV); fungus = slow, clearance-resistant,
+//   blooms when immunity is weak and is suppressed (not eradicated) when strong (Candida).
+export const ORGANISM_TYPES = ["bacterium", "virus", "fungus"];
+// host immune strength scales detection+clearance (immune_presence) — kept gentle so a
+// robust host doesn't become a one-multiplier mincer (it also feeds lock, so it's already
+// effectively a double term). Council-reviewed.
+export const IMMUNE_STRENGTHS = { immunocompromised: 0.7, healthy: 1.0, robust: 1.3 };
+
 // ---- world construction ----------------------------------------------------
-export function freshEcosystem(genomes) {
-  // genomes: [{ id, stealth, preferredO2, home }]
+export function freshEcosystem(genomes, hostOpts = {}) {
+  // genomes: [{ id, stealth, preferredO2, home, type }]; hostOpts: { immune_strength }
+  const immuneStrength = hostOpts.immune_strength ?? 1.0;
   const colonies = {};
   for (const g of genomes) {
     const home = g.home && ZONES.includes(g.home) && home_ok(g.home) ? g.home : "gut";
+    const type = ORGANISM_TYPES.includes(g.type) ? g.type : "bacterium";
     const presence = Object.fromEntries(ZONES.map((z) => [z, 0]));
     presence[home] = 12;
     const signature = Object.fromEntries(ZONES.map((z) => [z, 0]));
     signature[home] = 8;
     colonies[g.id] = {
       id: g.id,
+      type,
       stealth: g.stealth ?? 5,
       preferredO2: g.preferredO2 ?? 50,
       home,
@@ -98,6 +112,8 @@ export function freshEcosystem(genomes) {
       resistance: 0,  // A1: adaptation to being struck — softens repeated strikes (immune-owned, hidden)
       virulence: 0,   // A3: toxin-built aggression — feed kicker + a standing detection tax (colony-owned)
       preparing: 0,   // two-step transmit: a colony must telegraph (expose) one tick before it can escape
+      reservoir: 0,   // hidden carrier pool the immune CANNOT touch — virus latency / fungal colonisation
+      biofilm: 0,     // bacterium: a sessile wall that absorbs strikes but slows escape
     };
   }
   const zones = {};
@@ -106,7 +122,7 @@ export function freshEcosystem(genomes) {
       glucose: ZONE_BASE[z].glucose,
       iron: ZONE_BASE[z].iron,
       oxygen: ZONE_BASE[z].oxygen,
-      immune_presence: ZONE_BASE[z].immune,
+      immune_presence: ZONE_BASE[z].immune * immuneStrength,
       inflammation: 0,
       drainLast: 0,        // glucose pulled here last tick (an anomaly the immune can read)
       sweptLast: false,    // patrolled last tick (passing through costs extra here)
@@ -116,7 +132,7 @@ export function freshEcosystem(genomes) {
   }
   return {
     tick: 0,
-    host: { integrity: 100, toxin: 0 },
+    host: { integrity: 100, toxin: 0, immune_strength: immuneStrength },
     zones,
     colonies,
     immune: { energy: 6 },
@@ -171,7 +187,10 @@ function observeColony(world, id) {
   return {
     faction: "colony", id: c.id, tick: world.tick,
     me: {
-      total_load: +totalLoad(c).toFixed(1),
+      type: c.type,                                 // bacterium | virus | fungus
+      total_load: +totalLoad(c).toFixed(1),         // ACTIVE infection (the immune can hit this)
+      reservoir: +c.reservoir.toFixed(0),           // hidden carrier pool (immune can't touch it) — latency/colonisation
+      biofilm: +c.biofilm.toFixed(0),               // bacterium: a wall that absorbs strikes but slows escape
       dominant_zone: dominantZone(c),
       detected: +c.lock.toFixed(0),
       quorum: +quorum(c).toFixed(0),
@@ -221,6 +240,8 @@ function observeImmune(world) {
       const noise = 1 - c.lock / 200;
       contacts.push({
         id: c.id,
+        type: c.type,                              // identified once detected: bacterium (eradicable) / virus / fungus (persistent)
+        eradicable: !isPersistent(c),              // virus latency & fungal colonisation can be SUPPRESSED, not eradicated
         lock: +c.lock.toFixed(0),
         est_load: +Math.max(0, totalLoad(c) * (0.85 + 0.3 * (1 - noise))).toFixed(0),
         zones: ZONES.filter((z) => c.presence[z] > 0.5),
@@ -331,6 +352,12 @@ export function resolveEcoTick(world, actions) {
 }
 
 // ---- colony action mechanics ----------------------------------------------
+function typeGrowthMod(c, zw) {
+  if (c.type === "virus") return 0.92 * clamp(zw.glucose / 70, 0.5, 1.2);          // needs host cells (glucose)
+  if (c.type === "fungus") return 0.7 * clamp(1.4 - 0.5 * zw.immune_presence, 0.35, 1.3); // blooms where immunity is weak
+  return 1; // bacterium
+}
+
 function feedColony(w, c, log) {
   const z = dominantZone(c);
   const zw = w.zones[z];
@@ -342,6 +369,8 @@ function feedColony(w, c, log) {
   let grow = BASE_GROW * glucoseFactor * o2match * containFactor * lymphPenalty;
   if (depleted) grow *= 0.7;
   grow *= (1 + 0.10 * c.virulence); // A3: a virulent strain runs hotter (paid for via toxin)
+  grow *= typeGrowthMod(c, zw);      // virus needs host cells; fungus is slow but blooms when immunity is weak
+  if (c.type === "bacterium") c.biofilm = Math.min(40, c.biofilm + 2); // sessile growth walls off into a biofilm
   c.presence[z] += grow;
   const drained = grow * 1.2;
   zw.glucose = clamp(zw.glucose - drained, 0, 100);
@@ -365,6 +394,7 @@ function moveColony(w, c, target, log) {
   const arrived = amount * success;
   c.presence[src] -= amount;
   c.presence[dest] += arrived;
+  c.biofilm *= 0.5; // migrating tears up the biofilm wall
   c.signature[src] += 4 + 0.15 * amount;
   c.signature[dest] += 6 + 0.20 * arrived;
   if (dest === "blood") { c.signature.blood += 8; if (w.zones.blood.sweptLast) c.lock = clamp(c.lock + 4, 0, 100); }
@@ -518,8 +548,13 @@ function strikeColony(w, c, log) {
     || dominantZone(c);
   const lockFactor = 0.75 + c.lock / 100;
   const dmg = 10 * w.zones[z].immune_presence * lockFactor;
-  const eff = dmg * (1 - c.resistance);                 // A1: adaptation softens the bite
-  c.presence[z] = Math.max(0, c.presence[z] - eff);
+  let eff = dmg * (1 - c.resistance);                   // A1: adaptation softens the bite
+  if (c.type === "bacterium") eff *= (1 - c.biofilm / 80); // a biofilm wall physically absorbs the strike
+  const before = c.presence[z];
+  c.presence[z] = Math.max(0, before - eff);
+  // active CAN be driven to 0 — but a virus seeds part of the lost biomass into a hidden
+  // RESERVOIR the immune can't touch (latency), so eradication ≠ suppression.
+  if (c.type === "virus") c.reservoir = Math.min(120, c.reservoir + (before - c.presence[z]) * 0.10);
   c.resistance = Math.min(0.45, c.resistance + 0.12);   // A1: each landed hit raises adaptation
   c.lock = Math.max(0, c.lock - 18);
   w.zones[z].inflammation += 6;
@@ -551,7 +586,22 @@ function upkeep(w, log) {
     c.resistance = Math.max(0, c.resistance - 0.04); // A1: adaptation fades if the immune stops hammering
     c.virulence = Math.max(0, c.virulence - 0.1);    // A3: virulence relaxes without fresh toxin
     if (c.preparing > 0) c.preparing -= 1;           // the transmit window closes if not completed next tick
-    if (totalLoad(c) <= 0.5) { c.alive = false; log.push(`${c.id} cleared`); }
+    // ---- per-type persistence: ACTIVE load is separate from a hidden RESERVOIR ----
+    const weak = w.immune.energy / 12;
+    if (c.type === "bacterium") c.biofilm = Math.max(0, c.biofilm - 1); // the wall slowly sloughs off
+    if (c.type === "virus" && c.reservoir > 0) {        // latency: the reservoir reactivates, faster as immunity wanes
+      const rate = w.host.immune_strength < 1 ? 0.02 + 0.08 * (1 - weak) : 0.005;
+      const react = c.reservoir * rate;
+      c.presence[dominantZone(c)] += react;
+      c.reservoir = Math.max(0, c.reservoir - react);
+    }
+    if (c.type === "fungus") {                          // colonisation: a standing reservoir keeps recolonising — you suppress, not eradicate
+      c.reservoir = Math.min(40, c.reservoir + Math.min(totalLoad(c), 20) * 0.03);
+      c.presence[dominantZone(c)] += c.reservoir * (0.06 + 0.10 * (1 - weak));
+    }
+    // true eradication ONLY when active is gone AND no reservoir survives
+    const persists = c.reservoir > 0.5;
+    if (totalLoad(c) <= 0.5 && !persists) { c.alive = false; log.push(`${c.id} eradicated`); }
   }
   for (const t of w.tips) t.age += 1;
   w.tips = w.tips.filter((t) => t.age <= TIP_TTL);
@@ -565,13 +615,23 @@ function upkeep(w, log) {
     // hunting ground (immune_presence), recomputed fresh from base so it never drifts.
     zw.fibrosis = Math.max(0, zw.fibrosis - 0.5);
     const scarMul = clamp(1 - zw.fibrosis / 80, 0.5, 1);
-    zw.immune_presence = ZONE_BASE[z].immune * scarMul;
+    zw.immune_presence = ZONE_BASE[z].immune * scarMul * (w.host.immune_strength || 1); // host immune strength scales detection+damage everywhere
     const regenMul = clamp(1 - zw.inflammation / 100, 0.35, 1.0);
     zw.glucose = clamp(zw.glucose + ZONE_BASE[z].g_regen * regenMul * scarMul, 0, ZONE_BASE[z].glucose);
     zw.iron = clamp(zw.iron + ZONE_BASE[z].i_regen * regenMul * scarMul, 0, ZONE_BASE[z].iron);
   }
   w.host.toxin = clamp(w.host.toxin * 0.85, 0, 100);
   w.host.integrity = clamp(w.host.integrity - w.host.toxin * 0.06 - totalInfl * 0.01, 0, 100);
+
+  // equilibrium detection: when a persistent infection settles into a steady state
+  // (active load stable for a stretch), the outcome is decided early instead of waiting
+  // out the clock — that's the difference between a resolving illness and a chronic one.
+  const liveCs = Object.values(w.colonies).filter((c) => c.alive && !c.transmitted);
+  const activeTotal = liveCs.reduce((s, c) => s + totalLoad(c), 0);
+  const prev = w._prevActive ?? activeTotal;
+  if (liveCs.some(isPersistent) && Math.abs(activeTotal - prev) <= Math.max(2, prev * 0.12)) w._stable = (w._stable || 0) + 1;
+  else w._stable = 0;
+  w._prevActive = activeTotal;
 }
 
 // ---- helpers ---------------------------------------------------------------
@@ -591,14 +651,33 @@ function hottestUndetected(live) {
   return live.filter((x) => x.lock < DETECT_REVEAL).sort((a, b) => sum(b.signature) - sum(a.signature))[0] || null;
 }
 
+export function isPersistent(c) {
+  // a surviving hidden reservoir (viral latency / fungal colonisation) or a walled-off
+  // biofilm focus — an infection the immune system can suppress but not eradicate.
+  return c.reservoir > 0.5 || (c.type === "bacterium" && c.biofilm >= 30);
+}
+
+function classifyPersistent(persistent) {
+  // high steady active load = chronic active disease; suppressed-to-a-trickle = latent carrier
+  const maxActive = Math.max(...persistent.map(totalLoad));
+  if (maxActive <= 4) return { type: "latent", winner: "host", reason: "latent carrier — infection suppressed to a hidden reservoir that can flare later" };
+  return { type: "chronic", winner: "host", reason: "chronic active infection — the immune system manages it but cannot eradicate it" };
+}
+
 export function evaluateEco(w) {
   for (const c of Object.values(w.colonies)) {
     if (c.transmitted) return { type: "transmit", winner: c.id, reason: `${c.id} transmitted` };
   }
   if (w.host.integrity <= 0) return { type: "host_death", winner: "none", reason: "host died (everyone loses)" };
-  const liveCount = Object.values(w.colonies).filter((c) => c.alive && !c.transmitted).length;
-  if (liveCount === 0) return { type: "cleared", winner: "immune", reason: "all colonies cleared" };
-  if (w.tick >= MAX_TICKS) return { type: "contained", winner: "immune", reason: "immune contained everything to the time limit" };
+  const live = Object.values(w.colonies).filter((c) => c.alive && !c.transmitted);
+  if (live.length === 0) return { type: "cleared", winner: "immune", reason: "infection eradicated — active load and reservoir both gone" };
+  const persistent = live.filter(isPersistent);
+  // early equilibrium: a settled persistent infection is decided without waiting out the clock
+  if (persistent.length && (w._stable || 0) >= 18) return classifyPersistent(persistent);
+  if (w.tick >= MAX_TICKS) {
+    if (persistent.length) return classifyPersistent(persistent);
+    return { type: "contained", winner: "immune", reason: "immune contained the infection before it could spread or persist" };
+  }
   return null;
 }
 

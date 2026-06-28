@@ -50,7 +50,10 @@ function colonyPrompt(o) {
   return [
     `You are microbe COLONY ${o.id} inside a host. You CANNOT see rival colonies, but they drain the same nutrients (competition now: ${o.competition}).`,
     `GOAL: pile biomass to an EXIT zone (gut needs ${o.exits.gut}, lung needs ${o.exits.lung}) and transmit once presence there >= its threshold AND quorum >= ${o.quorum_to_transmit} AND you're not too recognised.`,
-    `YOU: total_load ${o.me.total_load}, quorum ${o.me.quorum}/${o.quorum_to_transmit}, recognised(lock) ${o.me.detected}/100, dominant zone ${o.me.dominant_zone}, prefers O2 ${o.me.preferred_oxygen}. Host integrity ${o.host.integrity}, toxin ${o.host.toxin}.`,
+    `YOU are a ${o.me.type.toUpperCase()}: active_load ${o.me.total_load}, hidden reservoir ${o.me.reservoir}${o.me.biofilm ? ", biofilm " + o.me.biofilm : ""}, quorum ${o.me.quorum}/${o.quorum_to_transmit}, recognised(lock) ${o.me.detected}/100, dominant zone ${o.me.dominant_zone}. Host integrity ${o.host.integrity}.`,
+    o.me.type === "virus" ? "As a VIRUS you keep a latent reservoir the immune can't clear (it reactivates later) — but you need host cells (glucose) to grow." :
+      o.me.type === "fungus" ? "As a FUNGUS you colonise (a reservoir keeps recolonising — you're never eradicated, only suppressed) but grow slowly; you thrive when immunity is weak." :
+        "As a BACTERIUM you grow fast and can wall off into a biofilm (absorbs strikes, but slows your escape).",
     "ZONES you can sense (mass grows where glucose is high and oxygen suits you; blood is rich+iron but a kill-zone; lymph is a memory trap):",
     zlines,
     `Signaling Molecules (SM) ${o.me.sm} — fund espionage.${o.scout_intel ? ` SCOUT INTEL: zone ${o.scout_intel.zone} has rival_presence ~${o.scout_intel.rival_presence}.` : ""}`,
@@ -67,7 +70,7 @@ function immunePrompt(o) {
     `  ${z}: anomaly ${zw.anomaly}, inflam ${zw.inflammation}, drain ${zw.nutrient_drain}, immune ${zw.immune_presence}x${zw.is_exit ? " EXIT" : ""}${zw.contained ? " QUARANTINED" : ""}`
   ).join("\n");
   const cs = o.contacts.length
-    ? o.contacts.map((c) => `${c.id}(lock ${c.lock}, ~load ${c.est_load}, in [${c.zones.join(",")}]${c.escaping ? ", ⚠ESCAPING NOW — push its lock past 65 or strike it THIS tick!" : ""})`).join("; ")
+    ? o.contacts.map((c) => `${c.id}=${c.type}${c.eradicable ? "" : "(PERSISTENT — can only be suppressed, not eradicated; just keep its active load low & block transmit)"}(lock ${c.lock}, ~load ${c.est_load}, in [${c.zones.join(",")}]${c.escaping ? ", ⚠ESCAPING NOW — push its lock past 65 or strike it THIS tick!" : ""})`).join("; ")
     : "none localised yet";
   return [
     "You are the HOST IMMUNE SYSTEM. Hidden microbe colonies grow and try to escape. You only act on what you've localised; everything else shows up as per-zone ANOMALIES.",

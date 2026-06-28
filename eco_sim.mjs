@@ -6,13 +6,16 @@
 import {
   freshEcosystem, observeEco, resolveEcoTick, colonyIds, ZONES,
   defaultColonyPolicy, defaultImmunePolicy, MAX_TICKS,
-  QUORUM_TOXIN, LOCK_TO_STRIKE, LOCK_TO_TRANSMIT, QUORUM_TRANSMIT, EXIT_THRESH, EXITS
+  QUORUM_TOXIN, LOCK_TO_STRIKE, LOCK_TO_TRANSMIT, QUORUM_TRANSMIT, EXIT_THRESH, EXITS,
+  ORGANISM_TYPES, IMMUNE_STRENGTHS,
 } from "./web/src/ecosystem.mjs";
 
 let isMatrix = false;
+let isBio = false;
 let GAMES = 300;
 for (const arg of process.argv.slice(2)) {
   if (arg === "matrix") isMatrix = true;
+  else if (arg === "bio") isBio = true;
   else if (!isNaN(Number(arg))) {
     const n = Math.floor(Number(arg));
     if (Number.isFinite(n) && n > 0) GAMES = n;
@@ -98,7 +101,37 @@ function playOneFull(colPolicy = defaultColonyPolicy, immPolicy = defaultImmuneP
   return { out, tick: w.tick, genomes, seededHome };
 }
 
-if (isMatrix) {
+// bio mode: vary organism type + host immune strength, report the realism outcome spread
+function playBio(type, strength) {
+  const genomes = [
+    { id: "A", stealth: rnd(2, 8), preferredO2: rnd(10, 90), home: pick(["gut", "lung"]), type },
+    { id: "B", stealth: rnd(2, 8), preferredO2: rnd(10, 90), home: pick(["gut", "lung"]), type },
+  ];
+  let w = freshEcosystem(genomes, { immune_strength: strength });
+  const ids = colonyIds(w);
+  const colCtl = noisy(defaultColonyPolicy, colonyLegal);
+  const immCtl = noisy(defaultImmunePolicy, immuneLegal);
+  for (let i = 0; i < MAX_TICKS + 2 && !w.outcome; i++) {
+    const fl = [...ids.filter((id) => w.colonies[id].alive && !w.colonies[id].transmitted), "immune"];
+    const actions = {};
+    for (const f of fl) actions[f] = f === "immune" ? immCtl(observeEco(w, f)) : colCtl(observeEco(w, f));
+    w = resolveEcoTick(w, actions);
+  }
+  return (w.outcome || { type: "contained" }).type;
+}
+
+if (isBio) {
+  console.log(`BIO MODE — organism type x host immune strength, ${GAMES} games per cell\n`);
+  console.log("  type        host             outcomes (transmit=microbe escapes · contained/cleared=immune wins · chronic/latent=persists · host_death=both lose)");
+  for (const type of ORGANISM_TYPES) {
+    for (const [hostName, strength] of Object.entries(IMMUNE_STRENGTHS)) {
+      const t = {};
+      for (let g = 0; g < GAMES; g++) { const o = playBio(type, strength); t[o] = (t[o] || 0) + 1; }
+      const spread = Object.entries(t).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${(100 * v / GAMES).toFixed(0)}%`).join(", ");
+      console.log(`  ${type.padEnd(11)} ${hostName.padEnd(16)} ${spread}`);
+    }
+  }
+} else if (isMatrix) {
   console.log(`MATRIX MODE: ${GAMES} games per cell (head-to-head archetypes)`);
   // trap policies are deliberate bad strategies — we WANT the field to beat them;
   // they verify a degenerate line doesn't secretly dominate, so exclude them when
