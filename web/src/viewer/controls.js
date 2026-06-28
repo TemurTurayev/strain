@@ -1,7 +1,8 @@
 import { lerpFrame, eventsAt, loadReplay, normalizeTranscript, validateReplay } from "./replay.js?v=1";
 import { runLiveGame } from "./live.js?v=1";
+import { eventTicks } from "./narrate.js?v=1";
 
-export function mountControls({ mountEl, viewer, panels, replay, theme }) {
+export function mountControls({ mountEl, viewer, panels, narration, replay, theme }) {
   let tick = 0;
   let alpha = 0;
   let speed = 1;
@@ -128,6 +129,7 @@ export function mountControls({ mountEl, viewer, panels, replay, theme }) {
          let fxEvts = alpha >= 0.5 ? evts : [];
          viewer.draw(frame, fxEvts, theme);
          panels.update(frame, { revealTruth });
+         if (narration) narration.update(replay, tick);
      }
   }
 
@@ -169,6 +171,12 @@ export function mountControls({ mountEl, viewer, panels, replay, theme }) {
      tick = 0;
      alpha = 0;
      if (replay && replay.config) theme.config = replay.config; // exit thresholds etc. for the renderer
+     if (replay && replay.colonyMeta) {
+        // one color source for the whole UI: derive the graph palette from the replay's
+        // colonyMeta so blobs, legend, and narration all agree per match.
+        theme.factionColors = Object.fromEntries(Object.entries(replay.colonyMeta).map(([id, m]) => [id, m.color]));
+        if (narration) narration.setMeta(replay.colonyMeta);
+     }
 
      if (replay && replay.frames && replay.frames[0] && replay.frames[0].colonies) {
          // build faction options via DOM (textContent) — never interpolate replay ids into innerHTML
@@ -178,6 +186,15 @@ export function mountControls({ mountEl, viewer, panels, replay, theme }) {
          add("immune", "Immune");
          for (const id of Object.keys(replay.frames[0].colonies)) add(id, `Colony ${id}`);
      }
+
+     // scrubber event tick-marks via a native datalist
+     try {
+        const marks = eventTicks(replay);
+        let dl = mountEl.querySelector("#ctrl-marks");
+        if (!dl) { dl = document.createElement("datalist"); dl.id = "ctrl-marks"; mountEl.appendChild(dl); scrub.setAttribute("list", "ctrl-marks"); }
+        dl.textContent = "";
+        for (const m of marks) { const o = document.createElement("option"); o.value = m.tick; dl.appendChild(o); }
+     } catch (e) { /* non-fatal */ }
 
      updateFrame();
   }

@@ -4,6 +4,7 @@ import { mountControls } from "./controls.js?v=1";
 import { initGraph } from "./graph.js?v=1";
 import { runLiveGame } from "./live.js?v=1";
 import { loadReplay, validateReplay, normalizeTranscript } from "./replay.js?v=1";
+import { mountNarration } from "./narrate.js?v=1";
 
 export function mountEcoViewer(rootEl) {
   const style = getComputedStyle(document.documentElement);
@@ -24,7 +25,9 @@ export function mountEcoViewer(rootEl) {
           <div id="graph-container" style="flex: 3 1 0; position: relative; min-width: 0;">
              <canvas id="eco-canvas" style="width: 100%; height: 100%; display: block;"></canvas>
           </div>
-          <div id="panels-container" style="flex: 1 1 0; min-width: 180px; max-width: 360px; background: var(--surface); border-left: 1px solid var(--border); overflow: auto;">
+          <div id="panels-container" style="flex: 1 1 0; min-width: 200px; max-width: 380px; background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0;">
+             <div id="narration" style="flex: 1 1 55%; overflow-y: auto; padding: 12px 14px; border-bottom: 1px solid var(--border);"></div>
+             <div id="faction-view" style="flex: 1 1 45%; overflow-y: auto;"></div>
           </div>
        </div>
        <div id="controls-container" style="flex: 0 0 auto; min-width: 0;">
@@ -33,7 +36,8 @@ export function mountEcoViewer(rootEl) {
   `;
 
   const canvas = rootEl.querySelector("#eco-canvas");
-  const panelsEl = rootEl.querySelector("#panels-container");
+  const panelsEl = rootEl.querySelector("#faction-view");
+  const narrationEl = rootEl.querySelector("#narration");
   const controlsEl = rootEl.querySelector("#controls-container");
 
   const viewer = mountViewer(canvas);
@@ -47,7 +51,8 @@ export function mountEcoViewer(rootEl) {
   ro.observe(rootEl.querySelector("#graph-container"));
 
   const panels = mountPanels(panelsEl);
-  const controls = mountControls({ mountEl: controlsEl, viewer, panels, replay: null, theme });
+  const narration = mountNarration(narrationEl, theme.factionColors);
+  const controls = mountControls({ mountEl: controlsEl, viewer, panels, narration, replay: null, theme });
 
   initGraph({});
 
