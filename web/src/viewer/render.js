@@ -97,7 +97,10 @@ export function mountViewer(canvas) {
         ctx.beginPath(); ctx.arc(bx, by, blobR, 0, 7); ctx.globalAlpha = 0.9; ctx.fillStyle = base; ctx.fill(); ctx.globalAlpha = 1;
         if (lock >= 25) { ctx.lineWidth = 2; ctx.strokeStyle = `rgba(255,70,70,${Math.min(1, lock / 80)})`; ctx.stroke(); }
         if (col.transmitted) { ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke(); }
-        label(ctx, capped ? `${id}·${Math.round(p)}` : id, bx, by + 3, "#0a0d12", Math.max(9, Math.min(13, blobR)), "700");
+        // hidden reservoir (viral latency / fungal colonisation) — a faint dashed inner ring
+        if ((col.reservoir || 0) > 1) { ctx.save(); ctx.setLineDash([3, 3]); ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(190,170,255,0.75)"; ctx.beginPath(); ctx.arc(bx, by, blobR * 0.55, 0, 7); ctx.stroke(); ctx.restore(); }
+        const tg = { virus: "ᵥ", fungus: "f" }[col.type] || "";
+        label(ctx, (capped ? `${id}·${Math.round(p)}` : id) + tg, bx, by + 3, "#0a0d12", Math.max(9, Math.min(13, blobR)), "700");
       });
     }
 
@@ -137,14 +140,17 @@ export function mountViewer(canvas) {
     ctx.fillStyle = "rgba(235,242,248,0.92)";
     ctx.fillText(`tick ${frame.tick | 0}`, 14, 22);
     ctx.fillStyle = "rgba(180,195,205,0.8)";
-    ctx.fillText(`host ${Math.round(frame.host?.integrity ?? 100)}  toxin ${Math.round(frame.host?.toxin ?? 0)}`, 14, 40);
+    const strength = frame.host?.immune_strength;
+    const hostImm = strength == null ? "" : `  immunity ${strength < 0.85 ? "weak" : strength > 1.15 ? "robust" : "healthy"}`;
+    ctx.fillText(`host ${Math.round(frame.host?.integrity ?? 100)}  toxin ${Math.round(frame.host?.toxin ?? 0)}${hostImm}`, 14, 40);
     let y = 62;
     for (const id of Object.keys(cols)) {
       const col = cols[id]; if (col.transmitted) continue;
       const load = ZONE_KEYS.reduce((s, z) => s + (col.presence[z] || 0), 0);
       ctx.fillStyle = meta[id] || "#66cccc"; ctx.fillRect(14, y - 9, 11, 11);
       ctx.fillStyle = "rgba(220,230,238,0.9)";
-      ctx.fillText(`${id}  load ${Math.round(load)}  lock ${Math.round(col.lock || 0)}`, 30, y);
+      const resv = (col.reservoir || 0) > 1 ? `  resv ${Math.round(col.reservoir)}` : "";
+      ctx.fillText(`${id} ${col.type || "bacterium"}  load ${Math.round(load)}  lock ${Math.round(col.lock || 0)}${resv}`, 30, y);
       y += 18;
     }
   }

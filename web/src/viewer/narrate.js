@@ -31,9 +31,11 @@ function pretty(line) {
 }
 
 const OUTCOME_TEXT = {
-  transmit: (o) => `🏁 ${o.winner} wins — transmitted`,
-  cleared: () => `🛡️ Immune wins — all colonies cleared`,
-  contained: () => `🛡️ Immune wins — contained to the time limit`,
+  transmit: (o) => `🏁 ${o.winner} transmitted — the microbe escaped to a new host`,
+  cleared: () => `🛡️ Immune wins — infection ERADICATED (no reservoir left)`,
+  contained: () => `🛡️ Immune wins — contained before it could spread or persist`,
+  chronic: () => `🦠 CHRONIC infection — the immune system manages it but cannot eradicate it`,
+  latent: () => `🌙 LATENT carrier — suppressed, but a hidden reservoir remains (it can flare later)`,
   host_death: () => `💀 Host died — everyone loses`,
 };
 

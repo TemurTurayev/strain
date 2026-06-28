@@ -43,6 +43,7 @@ export function buildFrame(world, actions, log) {
     const c = world.colonies[id];
     colonies[id] = {
       alive: c.alive, transmitted: c.transmitted,
+      type: c.type || "bacterium", reservoir: +(c.reservoir ?? 0).toFixed(1), biofilm: +(c.biofilm ?? 0).toFixed(1),
       presence: snap(c.presence), signature: snap(c.signature),
       lock: +c.lock.toFixed(1), memory: +c.memory.toFixed(1), sm: +c.sm.toFixed(1),
       resistance: +(c.resistance ?? 0).toFixed(3), virulence: +(c.virulence ?? 0).toFixed(3),
@@ -56,7 +57,7 @@ export function buildFrame(world, actions, log) {
   views.immune = observeEco(world, "immune");
   return {
     tick: world.tick,
-    host: { integrity: +world.host.integrity.toFixed(1), toxin: +world.host.toxin.toFixed(1) },
+    host: { integrity: +world.host.integrity.toFixed(1), toxin: +world.host.toxin.toFixed(1), immune_strength: world.host.immune_strength ?? 1 },
     zones, colonies,
     actions: { ...actions },
     log: (log || []).slice(),
@@ -83,16 +84,18 @@ export function runLiveGame({ seed, genomes, controllers } = {}) {
   const rng = makeSeededRng(seed);
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
   if (!genomes || !genomes.length) {
+    const TYPES = ["bacterium", "virus", "fungus"];
     genomes = [
-      { id: "A", stealth: 2 + rng() * 6, preferredO2: 10 + rng() * 80, home: pick(["gut", "lung"]) },
-      { id: "B", stealth: 2 + rng() * 6, preferredO2: 10 + rng() * 80, home: pick(["gut", "lung"]) },
+      { id: "A", stealth: 2 + rng() * 6, preferredO2: 10 + rng() * 80, home: pick(["gut", "lung"]), type: pick(TYPES) },
+      { id: "B", stealth: 2 + rng() * 6, preferredO2: 10 + rng() * 80, home: pick(["gut", "lung"]), type: pick(TYPES) },
     ];
   }
+  const immune_strength = pick([0.7, 1.0, 1.3]); // immunocompromised / healthy / robust host
   const colCtl = noisy(defaultColonyPolicy, colonyLegal, rng);
   const immCtl = noisy(defaultImmunePolicy, immuneLegal, rng);
   const ctl = (controllers && Object.keys(controllers).length) ? controllers : null;
 
-  let w = freshEcosystem(genomes);
+  let w = freshEcosystem(genomes, { immune_strength });
   const ids = colonyIds(w);
   const frames = [];
   for (let i = 0; i < MAX_TICKS + 2 && !w.outcome; i++) {
