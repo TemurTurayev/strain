@@ -55,7 +55,8 @@ function colonyPrompt(o) {
     zlines,
     `Signaling Molecules (SM) ${o.me.sm} — fund espionage.${o.scout_intel ? ` SCOUT INTEL: zone ${o.scout_intel.zone} has rival_presence ~${o.scout_intel.rival_presence}.` : ""}`,
     "Actions: feed (grow in your dominant zone, but loud) · move:<zone> (migrate ~40% of your mass to an ADJACENT zone) · hide (drop signature, no growth) · toxin (poison the zone + rivals, costs iron & 10 of your own mass, very loud) · scout:<zone> (spend SM to recon a neighbour's rival presence) · snitch:<zone> (spend SM to frame a rival there — the immune gets a tip and the rival's signature spikes) · transmit (escape).",
-    "WARNING: a bulge sitting at an exit leaks detection BEFORE you escape — and the bigger you get the faster you're recognised; don't camp the threshold forever.",
+    "WARNING: a bulge sitting at an exit leaks detection BEFORE you escape — and the bigger you get the faster you're recognised (lock rises with your size). Transmit the MOMENT presence>=threshold & quorum>=75 & lock<65; waiting only raises lock.",
+    `STRATEGY: competition is ${o.competition} — if medium/high a rival is racing you unseen; scout:<neighbour> to find them, or snitch:<their zone> to make the immune chase THEM instead of you. ${o.me.detected >= 45 ? "You're getting recognised — hide or bolt now." : ""}`,
     "Reply with ONE action, e.g. 'feed', 'move:blood', 'scout:lung', 'snitch:gut', or 'transmit'.",
   ].join("\n");
 }
@@ -76,7 +77,8 @@ function immunePrompt(o) {
     `Localised contacts: ${cs}.`,
     `Tips (a colony snitched on a rival): ${o.tips && o.tips.length ? o.tips.map((t) => t.zone + "(age " + t.age + ")").join(", ") : "none"}.`,
     `Actions: sweep:<zone> (build recognition on whatever is there; 1.35x at exits — your main detector) · scan:<ID> (focus a contact) · strike:<ID> (needs lock>=${o.lock_to_strike}; hits hardest where immune is strong) · contain:<zone> (quarantine, arms next tick) · investigate:<zone> (act on a TIP — a true tip localises a hidden colony, +30 lock; no tip = wasted) · tolerize (heal host, cool inflammation).`,
-    "TIP: a colony that grows large is recognised faster (lock rises with its mass), so watch the noisiest exits. Reply with ONE action, e.g. 'sweep:lung', 'strike:A', 'investigate:gut'.",
+    "CRITICAL STRATEGY: there are usually TWO colonies but you act on ONE zone per tick — do NOT tunnel on the loudest one. The QUIET colony growing in the OTHER exit (gut or lung) is your real danger; sweep the exit you are NOT already watching. A contact whose ~load nears an exit threshold (gut 70 / lung 65) is about to ESCAPE — contain that exit or strike it THIS tick. Big colonies self-reveal, so split your attention across both exits.",
+    "Reply with ONE action, e.g. 'sweep:lung', 'strike:A', 'contain:gut', 'investigate:gut'.",
   ].join("\n");
 }
 
