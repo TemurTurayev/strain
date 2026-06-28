@@ -7,7 +7,7 @@ export async function playGame({ strain, host, adapter, maxTurns = 60 }) {
   let s = freshState(host);
   const transcript = [];
   for (let i = 0; i < maxTurns; i++) {
-    const verdict = evaluate(s);
+    const verdict = evaluate(s, strain);
     if (verdict) return { outcome: verdict[0], title: verdict[1], detail: verdict[2], turn: s.turn, transcript };
     const obs = observe(s, strain);
     let action, reason = "";

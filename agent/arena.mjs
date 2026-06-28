@@ -9,7 +9,7 @@
 import { playGame } from "./runner.mjs";
 import { heuristic } from "./adapters/heuristic.mjs";
 import { makeCliAdapter } from "./adapters/cli.mjs";
-import { PRESETS, HOSTS, HOST_KEYS } from "../web/src/engine.js";
+import { PRESETS, HOSTS, HOST_KEYS, ORGANISM_TYPES } from "../web/src/engine.js";
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => { const [k, v] = a.replace(/^--/, "").split("="); return [k, v ?? true]; })
@@ -20,24 +20,31 @@ if (args.llm) for (const p of String(args.llm).split(",")) competitors["llm:" + 
 
 const strainKeys = args.strains ? String(args.strains).split(",") : Object.keys(PRESETS);
 const hostKeys = args.hosts ? String(args.hosts).split(",") : HOST_KEYS;
+// organism types: default to the baseline; pass --types=bacterium,virus,fungus to sweep them.
+const typeKeys = (args.types ? String(args.types).split(",") : ["bacterium"]).filter((t) => ORGANISM_TYPES[t]);
 const scenarios = [];
-for (const sk of strainKeys) for (const hk of hostKeys) scenarios.push({ strain: PRESETS[sk], host: HOSTS[hk] });
+for (const tk of typeKeys) for (const sk of strainKeys) for (const hk of hostKeys)
+  scenarios.push({ strain: { ...PRESETS[sk], type: tk }, host: HOSTS[hk] });
 
 console.log(`arena: ${Object.keys(competitors).length} agent(s) × ${scenarios.length} scenarios\n`);
 const board = [];
 for (const [name, adapter] of Object.entries(competitors)) {
-  let wins = 0, n = 0; const turns = [];
+  // `persist` (virus latent / fungus chronic) is NOT a transmit win, but it's the
+  // signature outcome of those types — track it separately so it isn't invisible.
+  let wins = 0, persists = 0, n = 0; const turns = [];
   for (const sc of scenarios) {
     const r = await playGame({ strain: sc.strain, host: sc.host, adapter });
-    n++; if (r.outcome === "win") { wins++; turns.push(r.turn); }
+    n++;
+    if (r.outcome === "win") { wins++; turns.push(r.turn); }
+    else if (r.outcome === "persist") persists++;
   }
   const avg = turns.length ? turns.reduce((a, b) => a + b, 0) / turns.length : Infinity;
-  board.push({ name, winrate: Math.round((100 * wins) / n), wins, n, avgWinTurn: turns.length ? avg.toFixed(1) : "—" });
+  board.push({ name, winrate: Math.round((100 * wins) / n), wins, persists, n, avgWinTurn: turns.length ? avg.toFixed(1) : "—" });
 }
 // rank: higher win-rate first, then faster wins
 board.sort((a, b) => b.winrate - a.winrate || parseFloat(a.avgWinTurn) - parseFloat(b.avgWinTurn));
 
-console.log("rank  agent           winrate   wins   avg-win-turn");
+console.log("rank  agent           winrate   wins   persist   avg-win-turn");
 board.forEach((r, i) =>
-  console.log(`  ${i + 1}.  ${r.name.padEnd(14)} ${(r.winrate + "%").padEnd(8)} ${(r.wins + "/" + r.n).padEnd(6)} ${r.avgWinTurn}`)
+  console.log(`  ${i + 1}.  ${r.name.padEnd(14)} ${(r.winrate + "%").padEnd(8)} ${(r.wins + "/" + r.n).padEnd(6)} ${(r.persists + "/" + r.n).padEnd(8)} ${r.avgWinTurn}`)
 );

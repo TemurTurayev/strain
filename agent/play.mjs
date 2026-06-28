@@ -2,21 +2,23 @@
 //   node agent/play.mjs                         (heuristic agent, random host)
 //   node agent/play.mjs --strain=silent --host=feverish
 //   node agent/play.mjs --adapter=llm --provider=gemini   (frontier model plays)
+//   node agent/play.mjs --type=virus --adapter=llm --provider=codex  (organism type)
 import { playGame } from "./runner.mjs";
 import { heuristic } from "./adapters/heuristic.mjs";
 import { makeCliAdapter } from "./adapters/cli.mjs";
-import { PRESETS, HOSTS, HOST_KEYS } from "../web/src/engine.js";
+import { PRESETS, HOSTS, HOST_KEYS, ORGANISM_TYPES } from "../web/src/engine.js";
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => { const [k, v] = a.replace(/^--/, "").split("="); return [k, v ?? true]; })
 );
 
-const strain = PRESETS[args.strain] || PRESETS.aggressive;
+const type = ORGANISM_TYPES[args.type] ? args.type : "bacterium";
+const strain = { ...(PRESETS[args.strain] || PRESETS.aggressive), type };
 const host = (args.host && HOSTS[args.host]) || HOSTS[HOST_KEYS[Math.floor(Math.random() * HOST_KEYS.length)]];
 const useLlm = args.adapter === "llm";
 const adapter = useLlm ? makeCliAdapter({ provider: args.provider || "gemini" }) : heuristic;
 
-console.log(`${strain.name} · ${host.name} host · ${useLlm ? "LLM agent (" + (args.provider || "gemini") + ")" : "heuristic agent"}\n`);
+console.log(`${ORGANISM_TYPES[type].glyph} ${strain.name} (${ORGANISM_TYPES[type].name}) · ${host.name} host · ${useLlm ? "LLM agent (" + (args.provider || "gemini") + ")" : "heuristic agent"}\n`);
 const r = await playGame({ strain, host, adapter });
 const pad = (x, n) => String(x).padStart(n);
 for (const t of r.transcript) {

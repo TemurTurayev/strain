@@ -11,12 +11,23 @@ import { promisify } from "node:util";
 const runFile = promisify(execFile);
 const CONSILIUM = "/Users/temur/Desktop/Claude/consilium/target/release/consilium";
 
+const TYPE_NOTE = {
+  bacterium: "balanced baseline — no special traits.",
+  virus: "fast growth, hits the host harder, and the immune system maps you faster. You leave a hidden RESERVOIR: if your colony is cleared to 0 it reactivates, so you cannot be cleanly eradicated.",
+  fungus: "slow growth, but a thick wall blunts immune damage (even more when host_stability is low). You leave a hidden RESERVOIR and are very hard to clear.",
+};
+
 function buildPrompt(obs) {
   const c = obs.action_fixation_cost;
+  const type = obs.organism_type || "bacterium";
+  const hasReservoir = type === "virus" || type === "fungus";
   return [
     "You are an AI agent playing a turn-based survival strategy game. Read the state and choose exactly ONE action.",
     "",
     "GOAL: get a successful `transmit` (break out to a new host) before immune_fixation reaches 100, host_stability reaches 0, or colony_load reaches 0.",
+    hasReservoir
+      ? "Because you have a hidden reservoir, being cleared to 0 is not instant death (you reactivate) — but transmit is still the ONLY win; otherwise you merely persist (latent/chronic)."
+      : null,
     "",
     "ACTIONS:",
     "- replicate: grow colony_load, but raises inflammation (and fixation).",
@@ -26,6 +37,8 @@ function buildPrompt(obs) {
     "immune_fixation is your clock and the cost of being visible: loud actions (provoke, replicate) raise it faster. At 100 you lose.",
     "",
     `STATE (turn ${obs.turn}):`,
+    `- organism_type: ${type} — ${TYPE_NOTE[type] || TYPE_NOTE.bacterium}`,
+    hasReservoir ? `- reservoir: ${obs.reservoir} (hidden; reseeds your colony if it's cleared)` : null,
     `- colony_load: ${obs.colony_load}`,
     `- host_stability: ${obs.host_stability}`,
     `- immune_lockon: ${obs.immune_lockon}/100`,
@@ -39,7 +52,7 @@ function buildPrompt(obs) {
     `- fixation cost this turn: replicate +${c.replicate}, suppress +${c.suppress}, provoke +${c.provoke}, transmit +${c.transmit}`,
     "",
     "Reply with ONLY one word: replicate, suppress, provoke, or transmit.",
-  ].join("\n");
+  ].filter((line) => line !== null).join("\n");
 }
 
 function parseAction(text) {
