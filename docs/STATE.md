@@ -42,14 +42,15 @@ Consilium binary: `/Users/temur/Desktop/Claude/consilium/target/release/consiliu
 (`consilium run --provider gemini|codex|claude "<prompt>"`). The cli adapter uses it.
 
 ## IN FLIGHT (resume after compaction)
-- **Feedback council running** (the models that PLAYED critiquing the game): output →
-  `…/scratchpad/council_playtest_out.txt` (task was `bvlw6pdwh`). Read it, then
-  implement its top suggestions.
-- User's next ask: **add many more variables/indicators → "casual simulation" depth**
-  (metabolism/nutrient types, pH/temp/oxygen, immune memory, toxins/quorum sensing,
-  immune-cell types, EXPLICIT scouts/intel-trading in ecosystem, biofilms…), keep it
-  readable. Especially enrich `ecosystem.mjs`. Also: **tune versus to ~50/50**;
-  optional **browser UI for versus/ecosystem** (watch model matches live).
+- **NEXT TASK: implement the enrichment roadmap** at
+  `docs/plans/2026-06-27-enrichment-roadmap.md` (from the agent-players' feedback —
+  ranked variables + tissue graph + intel/scouting design, with formulas). Order:
+  (1) tissue graph 3–5 nodes, (2) core variables 1–12, (3) explicit intel/scouting
+  (scout/snitch/investigate — the user's "scouts/snitches"), (4) environment layer,
+  (5) mutation_load + biofilms. Add depth via VISIBLE env indicators, not new buttons.
+  This is the user's "more variables → casual-simulation depth" ask. Enrich
+  `ecosystem.mjs` first (it's the strongest mode), keep solo/versus intact.
+- Also pending: tune versus to ~50/50; optional browser UI for versus/ecosystem.
 
 ## Notes
 - `web/package.json` is `type:module`; agent `.mjs` import `../web/src/*.js`.
