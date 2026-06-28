@@ -76,12 +76,15 @@ export function mountEcoViewer(rootEl) {
 
   // auto-load a recorded match via ?game=<url> (shareable match links); else run a live game
   const gameUrl = new URLSearchParams(location.search).get("game");
-  if (gameUrl) {
-    fetch(gameUrl)
+  let gameU = null;
+  if (gameUrl) { try { gameU = new URL(gameUrl, location.href); } catch { gameU = null; } }
+  if (gameU && gameU.origin === location.origin) {
+    fetch(gameU.href, { credentials: "omit" })
       .then((r) => r.json())
       .then((raw) => load(loadReplay(validateReplay(normalizeTranscript(raw, {})))))
       .catch((e) => { console.error("failed to auto-load game:", e); runLive(); });
   } else {
+    if (gameUrl) console.error("refusing non-same-origin replay url:", gameUrl);
     setTimeout(() => runLive(), 100);
   }
 

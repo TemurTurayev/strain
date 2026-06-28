@@ -52,7 +52,10 @@ function parseAction(text) {
 }
 
 // generic: hand any prompt to a model via Consilium, return its raw text.
+const PROVIDER_RE = /^[a-z0-9._-]{1,32}$/i; // defensive: keep provider a simple token
+
 export async function askModel(provider, prompt, timeoutMs = 90000) {
+  if (!PROVIDER_RE.test(String(provider))) throw new Error(`invalid provider: ${provider}`);
   const { stdout } = await runFile(CONSILIUM, ["run", "--provider", provider, prompt], {
     timeout: timeoutMs,
     maxBuffer: 1 << 20,

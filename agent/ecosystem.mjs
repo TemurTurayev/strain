@@ -11,8 +11,8 @@ import {
 import { askModel } from "./adapters/cli.mjs";
 
 // ---- parsing ---------------------------------------------------------------
-const COLONY_ACTS = ["feed", "move", "hide", "toxin", "transmit"];
-const IMMUNE_ACTS = ["sweep", "scan", "strike", "contain", "tolerize"];
+const COLONY_ACTS = ["feed", "move", "hide", "toxin", "scout", "snitch", "transmit"];
+const IMMUNE_ACTS = ["sweep", "scan", "strike", "contain", "investigate", "tolerize"];
 
 function parseEco(text, faction, contactIds) {
   const t = String(text || "").toLowerCase();
@@ -24,11 +24,11 @@ function parseEco(text, faction, contactIds) {
     if (!m) continue;
     const act = m[1];
     let arg = m[2] || "";
-    if (faction === "colony" && act === "move") {
+    if (faction === "colony" && (act === "move" || act === "scout" || act === "snitch")) {
       const z = arg && ZONES.includes(arg) ? arg : ZONES.find((zz) => line.includes(zz));
-      return z ? "move:" + z : "feed";
+      return z ? act + ":" + z : (act === "move" ? "feed" : act + ":" + (ZONES.find((zz) => line.includes(zz)) || "blood"));
     }
-    if (faction === "immune" && (act === "sweep" || act === "contain")) {
+    if (faction === "immune" && (act === "sweep" || act === "contain" || act === "investigate")) {
       const z = arg && ZONES.includes(arg) ? arg : ZONES.find((zz) => line.includes(zz));
       return z ? act + ":" + z : act + ":" + (ZONES.find((zz) => line.includes(zz)) || "blood");
     }
@@ -53,9 +53,10 @@ function colonyPrompt(o) {
     `YOU: total_load ${o.me.total_load}, quorum ${o.me.quorum}/${o.quorum_to_transmit}, recognised(lock) ${o.me.detected}/100, dominant zone ${o.me.dominant_zone}, prefers O2 ${o.me.preferred_oxygen}. Host integrity ${o.host.integrity}, toxin ${o.host.toxin}.`,
     "ZONES you can sense (mass grows where glucose is high and oxygen suits you; blood is rich+iron but a kill-zone; lymph is a memory trap):",
     zlines,
-    "Actions: feed (grow in your dominant zone, but loud) · move:<zone> (migrate ~40% of your mass to an ADJACENT zone) · hide (drop signature, no growth) · toxin (poison the zone + rivals, costs iron & 10 of your own mass, very loud) · transmit (escape).",
-    "WARNING: a bulge sitting at an exit leaks detection BEFORE you escape — don't camp the threshold forever.",
-    "Reply with ONE action, e.g. 'feed' or 'move:blood' or 'transmit'.",
+    `Signaling Molecules (SM) ${o.me.sm} — fund espionage.${o.scout_intel ? ` SCOUT INTEL: zone ${o.scout_intel.zone} has rival_presence ~${o.scout_intel.rival_presence}.` : ""}`,
+    "Actions: feed (grow in your dominant zone, but loud) · move:<zone> (migrate ~40% of your mass to an ADJACENT zone) · hide (drop signature, no growth) · toxin (poison the zone + rivals, costs iron & 10 of your own mass, very loud) · scout:<zone> (spend SM to recon a neighbour's rival presence) · snitch:<zone> (spend SM to frame a rival there — the immune gets a tip and the rival's signature spikes) · transmit (escape).",
+    "WARNING: a bulge sitting at an exit leaks detection BEFORE you escape — and the bigger you get the faster you're recognised; don't camp the threshold forever.",
+    "Reply with ONE action, e.g. 'feed', 'move:blood', 'scout:lung', 'snitch:gut', or 'transmit'.",
   ].join("\n");
 }
 
@@ -69,12 +70,13 @@ function immunePrompt(o) {
   return [
     "You are the HOST IMMUNE SYSTEM. Hidden microbe colonies grow and try to escape. You only act on what you've localised; everything else shows up as per-zone ANOMALIES.",
     "GOAL: clear or pin every colony before any transmits. If host integrity hits 0 it's a MUTUAL LOSS — don't over-aggress.",
-    `HOST integrity ${o.host.integrity}, toxin ${o.host.toxin}. Your energy ${o.energy}. Hidden-threat signal (undetected mass out there): ${o.hidden_threat}.`,
+    `HOST integrity ${o.host.integrity}, toxin ${o.host.toxin}. Your energy ${o.energy} (scan 1, contain 2, strike 3, investigate 4; sweep/tolerize regen it — you CAN'T act without the energy). Hidden-threat (undetected mass): ${o.hidden_threat}.`,
     "ZONE readings:",
     zlines,
     `Localised contacts: ${cs}.`,
-    `Actions: sweep:<zone> (build recognition on whatever is there; 1.35x at exits) · scan:<ID> (focus a contact) · strike:<ID> (needs lock>=${o.lock_to_strike}; hits hardest where immune is strong) · contain:<zone> (quarantine, arms next tick) · tolerize (heal host, cool inflammation).`,
-    "Reply with ONE action, e.g. 'sweep:lung' or 'strike:A' or 'contain:gut'.",
+    `Tips (a colony snitched on a rival): ${o.tips && o.tips.length ? o.tips.map((t) => t.zone + "(age " + t.age + ")").join(", ") : "none"}.`,
+    `Actions: sweep:<zone> (build recognition on whatever is there; 1.35x at exits — your main detector) · scan:<ID> (focus a contact) · strike:<ID> (needs lock>=${o.lock_to_strike}; hits hardest where immune is strong) · contain:<zone> (quarantine, arms next tick) · investigate:<zone> (act on a TIP — a true tip localises a hidden colony, +30 lock; no tip = wasted) · tolerize (heal host, cool inflammation).`,
+    "TIP: a colony that grows large is recognised faster (lock rises with its mass), so watch the noisiest exits. Reply with ONE action, e.g. 'sweep:lung', 'strike:A', 'investigate:gut'.",
   ].join("\n");
 }
 
@@ -115,7 +117,7 @@ export async function playEcosystem({ genomes, controllers }) {
     });
     w = resolveEcoTick(w, actions);
   }
-  const out = w.outcome || evaluateEco(w) || { winner: "immune", reason: "timeout" };
+  const out = w.outcome || evaluateEco(w) || { type: "contained", winner: "immune", reason: "timeout" };
   return { ...out, tick: w.tick, transcript };
 }
 

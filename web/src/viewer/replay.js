@@ -82,9 +82,10 @@ export function normalizeTranscript(raw, meta = {}) {
 // a bare transcript row -> a partial Frame (one blob per colony on its dom zone,
 // no per-zone env, no private views). Keeps old/LLM transcripts playable.
 function degradeRow(row, ids) {
+  const rc = row.colonies || {};
   const colonies = {};
   for (const id of ids) {
-    const c = row.colonies[id] || {};
+    const c = rc[id] || {};
     const zone = c.zone || "gut";
     const presence = Object.fromEntries(ZONE_KEYS.map((z) => [z, z === zone ? (c.load || 0) : 0]));
     colonies[id] = {
@@ -94,7 +95,7 @@ function degradeRow(row, ids) {
     };
   }
   const actions = {};
-  for (const id of ids) actions[id] = (row.colonies[id] || {}).act || "—";
+  for (const id of ids) actions[id] = (rc[id] || {}).act || "—";
   actions.immune = row.immune;
   return {
     tick: row.tick,
@@ -142,17 +143,6 @@ export function lerpFrame(replay, tick, alpha) {
     colonies[id] = { ...ca, presence, lock: lerp(ca.lock || 0, cb.lock || 0) };
   }
   return { ...a, host: { integrity: lerp(a.host.integrity, b.host.integrity), toxin: lerp(a.host.toxin, b.host.toxin) }, zones, colonies };
-}
-
-// ── derivations (never stored in the record) ────────────────────────────────
-export function derive(frame) {
-  if (!frame || !frame.colonies) return {};
-  const totals = Object.fromEntries(ZONE_KEYS.map((z) => [z, 0]));
-  for (const c of Object.values(frame.colonies)) {
-    for (const z of ZONE_KEYS) totals[z] += (c.presence || {})[z] || 0;
-  }
-  const dominant_zone = ZONE_KEYS.reduce((b, z) => (totals[z] > totals[b] ? z : b), ZONE_KEYS[0]);
-  return { dominant_zone, zoneTotals: totals };
 }
 
 // ── log parsing (single source; matches the engine's Unicode minus U+2212) ──

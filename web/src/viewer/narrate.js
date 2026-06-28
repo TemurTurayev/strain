@@ -67,7 +67,8 @@ export function mountNarration(rootEl, colonyMeta) {
       const o = replay.outcome;
       const banner = document.createElement("div");
       Object.assign(banner.style, { marginTop: "8px", padding: "8px 10px", borderRadius: "6px", background: "rgba(255,255,255,0.06)", fontWeight: "700", fontSize: "14px", color: "var(--text)" });
-      banner.textContent = (OUTCOME_TEXT[o.type] || (() => `${o.winner} — ${o.reason}`))(o);
+      const fn = Object.prototype.hasOwnProperty.call(OUTCOME_TEXT, o.type) ? OUTCOME_TEXT[o.type] : null;
+      banner.textContent = (fn || (() => `${o.winner} — ${o.reason}`))(o);
       rootEl.appendChild(banner);
     }
   }

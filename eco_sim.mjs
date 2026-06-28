@@ -175,7 +175,7 @@ if (isMatrix) {
   if (transmitCount) {
     console.log(`  avg transmit tick: ${(transmitTicks / transmitCount).toFixed(1)}`);
     const wpct = (home) => ((100 * winByHome[home]) / transmitCount).toFixed(1) + "%";
-    console.log(`  win by home: gut ${wpct("gut")}, lung ${wpct("lung")}, blood ${wpct("blood")}`);
+    console.log(`  win by home: gut ${wpct("gut")}, lung ${wpct("lung")}`); // colonies only seed in gut/lung
     
     // no-dominant-node: with equal gut/lung seeding, neither exit should claim a
     // disproportionate share of colony wins. Balanced => ~50/50, tolerate 40-60%.

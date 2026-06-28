@@ -10,6 +10,7 @@ export function mountControls({ mountEl, viewer, panels, narration, replay, them
   let raf = null;
   let lastTime = 0;
   let revealTruth = false;
+  let fxTick = -1; // last tick whose events we spawned FX for (prevents per-frame FX flood)
   theme = theme || {}; // carries factionColors + (per loaded replay) config for the renderer
 
   mountEl.innerHTML = `
@@ -67,52 +68,27 @@ export function mountControls({ mountEl, viewer, panels, narration, replay, them
   btnStart.onclick = () => seek(0);
   btnEnd.onclick = () => seek(1000000);
 
+  function loadFromJsonText(text) {
+     try { load(loadReplay(validateReplay(normalizeTranscript(JSON.parse(text), {})))); }
+     catch (err) { console.error("Failed to load replay", err); }
+  }
+  function readFileInto(file) { const r = new FileReader(); r.onload = (re) => loadFromJsonText(re.target.result); r.readAsText(file); }
+
   btnLive.onclick = () => {
-     let seed = inputSeed.value || Math.random().toString(36).slice(2);
-     if (typeof runLiveGame === 'function') {
-        let gameReplay = runLiveGame({ seed, genomes: [], controllers: {} });
-        if (gameReplay) load(gameReplay);
-     }
+     const seed = inputSeed.value || ("s" + Date.now().toString(36));
+     inputSeed.value = seed; // surface the seed so the live game is reproducible/shareable
+     const gameReplay = runLiveGame({ seed, genomes: [], controllers: {} });
+     if (gameReplay) load(gameReplay);
   };
 
   btnLoad.onclick = () => inputFile.click();
-  inputFile.onchange = (e) => {
-     let file = e.target.files[0];
-     if (!file) return;
-     let reader = new FileReader();
-     reader.onload = (re) => {
-        try {
-           let raw = JSON.parse(re.target.result);
-           let norm = typeof normalizeTranscript === 'function' ? normalizeTranscript(raw, {}) : raw;
-           let valid = typeof validateReplay === 'function' ? validateReplay(norm) : norm;
-           let rep = typeof loadReplay === 'function' ? loadReplay(valid) : valid;
-           load(rep);
-        } catch (err) {
-           console.error("Failed to load replay", err);
-        }
-     };
-     reader.readAsText(file);
-  };
-  
+  inputFile.onchange = (e) => { const file = e.target.files[0]; if (file) readFileInto(file); };
+
   mountEl.addEventListener("dragover", (e) => { e.preventDefault(); });
   mountEl.addEventListener("drop", (e) => {
      e.preventDefault();
-     let file = e.dataTransfer.files[0];
-     if (file) {
-        let reader = new FileReader();
-        reader.onload = (re) => {
-           try {
-              let raw = JSON.parse(re.target.result);
-              let norm = typeof normalizeTranscript === 'function' ? normalizeTranscript(raw, {}) : raw;
-              let valid = typeof validateReplay === 'function' ? validateReplay(norm) : norm;
-              let rep = typeof loadReplay === 'function' ? loadReplay(valid) : valid;
-              load(rep);
-           } catch (err) {
-              console.error("Failed to load replay", err);
-           }
-        };
-        reader.readAsText(file);
-     }
+     const file = e.dataTransfer.files[0];
+     if (file) readFileInto(file);
   });
 
   function updateFrame() {
@@ -122,28 +98,33 @@ export function mountControls({ mountEl, viewer, panels, narration, replay, them
      scrub.max = maxTick;
      scrub.value = tick;
 
-     const frame = typeof lerpFrame === 'function' ? lerpFrame(replay, tick, alpha) : (replay.frames ? replay.frames[tick] : null);
-     const evts = typeof eventsAt === 'function' ? eventsAt(replay, tick) : [];
-     
+     const frame = lerpFrame(replay, tick, alpha);
+     const evts = eventsAt(replay, tick);
+
      if (frame) {
-         let fxEvts = alpha >= 0.5 ? evts : [];
+         // spawn event FX once per tick crossing (alpha>=0.5), not every animation frame
+         const fxEvts = (alpha >= 0.5 && tick !== fxTick) ? (fxTick = tick, evts) : [];
          viewer.draw(frame, fxEvts, theme);
          panels.update(frame, { revealTruth });
-         if (narration) narration.update(replay, tick);
+         if (narration) { try { narration.update(replay, tick); } catch (e) { /* one bad frame must not kill the loop */ } }
      }
+  }
+
+  function maxTickOf() {
+     return replay && replay.frames ? replay.frames.length - 1 : (replay && replay.length ? replay.length - 1 : 100);
   }
 
   function loop(ts) {
      if (!playing) return;
-     let dt = (ts - lastTime) / 1000;
+     const dt = (ts - lastTime) / 1000;
      lastTime = ts;
-     
+
      alpha += speed * dt;
-     while (alpha >= 1.0) {
-        alpha -= 1.0;
-        tick++;
-     }
-     
+     while (alpha >= 1.0) { alpha -= 1.0; tick++; }
+
+     const maxTick = maxTickOf();
+     if (tick >= maxTick) { tick = maxTick; alpha = 0; updateFrame(); pause(); return; } // stop at the end — don't spin rAF forever
+
      updateFrame();
      raf = requestAnimationFrame(loop);
   }
@@ -163,6 +144,7 @@ export function mountControls({ mountEl, viewer, panels, narration, replay, them
   function seek(newTick) {
      tick = newTick;
      alpha = 0;
+     fxTick = -1;
      updateFrame();
   }
 
@@ -170,6 +152,7 @@ export function mountControls({ mountEl, viewer, panels, narration, replay, them
      replay = newReplay;
      tick = 0;
      alpha = 0;
+     fxTick = -1;
      if (replay && replay.config) theme.config = replay.config; // exit thresholds etc. for the renderer
      if (replay && replay.colonyMeta) {
         // one color source for the whole UI: derive the graph palette from the replay's
