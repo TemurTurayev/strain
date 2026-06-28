@@ -3,6 +3,7 @@ import { mountPanels } from "./panels.js?v=1";
 import { mountControls } from "./controls.js?v=1";
 import { initGraph } from "./graph.js?v=1";
 import { runLiveGame } from "./live.js?v=1";
+import { loadReplay, validateReplay, normalizeTranscript } from "./replay.js?v=1";
 
 export function mountEcoViewer(rootEl) {
   const style = getComputedStyle(document.documentElement);
@@ -68,7 +69,16 @@ export function mountEcoViewer(rootEl) {
      rootEl.innerHTML = "";
   }
 
-  setTimeout(() => runLive(), 100);
+  // auto-load a recorded match via ?game=<url> (shareable match links); else run a live game
+  const gameUrl = new URLSearchParams(location.search).get("game");
+  if (gameUrl) {
+    fetch(gameUrl)
+      .then((r) => r.json())
+      .then((raw) => load(loadReplay(validateReplay(normalizeTranscript(raw, {})))))
+      .catch((e) => { console.error("failed to auto-load game:", e); runLive(); });
+  } else {
+    setTimeout(() => runLive(), 100);
+  }
 
   return { load, runLive, destroy };
 }
