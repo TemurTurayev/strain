@@ -1,40 +1,29 @@
-# STRAIN (MVP)
+# STRAIN — a hidden-information immune-system game + AI-agent arena
 
-Terminal prototype: steer a microbe colony to **transmit** to a new host before a **learning immune system** clears it. See [`DESIGN.md`](DESIGN.md) for the full design.
+A browser game (vanilla JS, no build) where microbe colonies grow inside a host and
+race to **transmit** to a new host, while the host's **immune system** — which only sees
+what it has *recognised* — hunts them across a graph of tissue zones (gut / blood / lung
+/ lymph). Played by humans **or by AI agents** through one `observe(state) → action`
+protocol, with live tournaments.
 
-## Play (browser game — the finished build)
+It models real immunology: **organism types** (bacterium / virus / fungus), a hidden
+**reservoir** vs **active** infection, and outcomes beyond win/lose — *eradicated*,
+*contained*, **chronic**, or **latent carrier**. A strong immune system repels even
+virulent pathogens; viruses and fungi are suppressed but never eradicated.
 
-    python3 -m http.server 5188 --directory web
-    # then open http://localhost:5188
+## Play / watch
+- **Arena (watch matches):** open [`web/eco-viewer.html`](web/eco-viewer.html) — a recorded
+  or live game replays on the tissue graph with per-faction fog-of-war panels.
+- **Solo game:** [`web/index.html`](web/index.html).
+- Served as a static site via GitHub Pages (`.github/workflows/pages.yml`).
 
-Clean sci-viz UI: pick a proven strain or build a custom genome (conservation law),
-then play — animated meters, a living colony canvas, in-run breakthrough mutations,
-audio, run history, and an autopsy recap on loss (point-of-no-return + counterfactual).
+## AI agents
+- `node agent/ecosystem.mjs --A=llm:gemini --B=llm:codex --immune=llm:claude` — three models play.
+- `node agent/eco_arena.mjs --llm=gemini,codex,claude` — a model tournament/leaderboard.
+- `node agent/record.mjs ... > web/game.json` then open `eco-viewer.html?game=/game.json`.
 
-## Run (terminal prototype — the proven core loop)
+## Balance / simulation harnesses
+- `node eco_sim.mjs 1000` — balance; `node eco_sim.mjs N bio` — organism-type × host-immunity spread.
 
-    python3 main.py
-
-## Test
-
-    python3 -m pytest -q
-
-## The loop
-
-| Action | What it does |
-|---|---|
-| **Replicate** | grow the colony — but inflame the host, so the immune system learns you |
-| **Suppress** | cool inflammation and drop immune lock-on — but lose tempo (no growth) |
-| **Provoke** | open a transmission window — but hurt the host |
-| **Transmit** | win, if a window is open and the colony is big enough |
-
-Three strains play differently:
-- **Aggressive** — fast growth, loud → race to transmit before the immune system catches up.
-- **Silent** — quiet and slow → the immune system barely sees you; win late but safe.
-- **Sticky** — high adhesion → transmits at a lower colony load; the easiest opener.
-
-The God Mode debug view (inflammation, lock-on, causality log) is **on by default** — balance with eyes open. All numbers are tuning clay; see [`DESIGN.md`](DESIGN.md) §5.
-
-## Status
-
-Phase-1 vertical slice. Deferred to later phases: free genome budget, mutations, real-time, AI agents, multiple maps/factions, graphics. See `docs/plans/`.
+Built by [@TemurTurayev](https://github.com/TemurTurayev). Core simulation is deterministic;
+design history in `docs/` and `DESIGN.md`.

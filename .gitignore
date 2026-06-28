@@ -4,3 +4,8 @@ __pycache__/
 .venv/
 venv/
 .DS_Store
+
+# local editor/agent config
+.claude/
+node_modules/
+*.log
