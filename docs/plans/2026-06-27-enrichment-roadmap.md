@@ -1,5 +1,12 @@
 # STRAIN — enrichment roadmap (from agent-player feedback)
 
+> PROGRESS (2026-06-28): TOP-1/2/3 DONE & council-balanced in `web/src/ecosystem.mjs`.
+> ✅ tissue graph (gut/blood/lung/lymph) · ✅ core vars 1–12 · ✅ intel scout/snitch/
+> investigate. Balance `eco_sim.mjs`: 43% colony / 57% immune / 0% host-death, no
+> dominant archetype (gut 25% / lung 26%). Commits 62a065f, 66a3494. A second council
+> reviewed the zone topology & numbers (transcript in `~/.consilium/runs/`). REMAINING:
+> #4 env 2nd layer (pH/temp/immune-cell-types), #5 mutation_load + biofilms.
+
 Source: a Consilium council of the models that PLAYED the game (Gemini/GPT/Claude),
 critiquing as players + designers. Implement in ORDER; add depth via VISIBLE
 environment indicators that change the value of existing actions — NOT 30 new buttons.

@@ -23,11 +23,19 @@ the user trivial questions; he doesn't care about other players' opinions yet.
    first cut ~36% colony / 64% immune — NEEDS tuning to ~50/50). `agent/versus.mjs`
    = agent-vs-agent (heuristic or LLM per side). Verified Gemini-colony beat GPT-immune.
 4. **Ecosystem** (multi-faction, HIDDEN INFO) — `web/src/ecosystem.mjs` +
-   `agent/ecosystem.mjs`. Several colonies share one host, compete invisibly for
-   nutrients, race to transmit; immune can't see a colony until it detects it
-   (sweep/scan), then contain/strike contacts. Per-faction partial `observeEco`.
-   Verified 3-model game (Gemini A loud / GPT B stealthy / Claude immune): stealthy B
-   slipped past the immune chasing loud A and won. **v1 — balance is rough.**
+   `agent/ecosystem.mjs`. **v2 (tissue-graph, council-balanced).** Now played across
+   a 4-ZONE GRAPH (gut/blood/lung/lymph, adjacency + 2 transmit exits gut/lung).
+   Core vars: per-zone `presence`, metabolism `glucose/iron/oxygen`, `immune_lock`
+   (recognition), `immune_memory` (soft-enrage w/ cap 80), `quorum` (gates transmit
+   75 / toxin 35), per-zone `signature`, `toxin_load`, `host_integrity`, per-zone
+   `inflammation`. Colony actions: feed/move:zone/hide/toxin/scout:zone/snitch:zone/
+   transmit. Immune: sweep:zone/scan:ID/strike:ID/contain:zone/investigate:zone/
+   tolerize — all zone-aware. INTEL LAYER: Signaling Molecules fund scout (recon a
+   neighbour) and snitch (frame a rival -> immune tip); immune must `investigate` a
+   tip to trust it (true=+30 lock localise, false=wasted energy → no blind trust).
+   Anti-camping: mass at an exit leaks detection BEFORE transmit; biomass is
+   intrinsically detectable. Balance harness `eco_sim.mjs`: **43% colony / 57% immune
+   / 0% host-death**, gut 25% / lung 26% (no dominant archetype). Solo/versus untouched.
 
 ## Run
 ```
@@ -36,21 +44,23 @@ node agent/play.mjs --adapter=llm --provider=gemini      # agent plays solo
 node agent/arena.mjs --llm=gemini,codex,claude           # solo agent leaderboard
 node agent/versus.mjs --colony=llm:gemini --immune=llm:codex   # asymmetric agent vs agent
 node agent/ecosystem.mjs --A=llm:gemini --B=llm:codex --immune=llm:claude  # 3-faction hidden-info
-node balance_sim.mjs ; node versus_sim.mjs               # balance harnesses
+node balance_sim.mjs ; node versus_sim.mjs ; node eco_sim.mjs   # balance harnesses
 ```
 Consilium binary: `/Users/temur/Desktop/Claude/consilium/target/release/consilium`
 (`consilium run --provider gemini|codex|claude "<prompt>"`). The cli adapter uses it.
 
 ## IN FLIGHT (resume after compaction)
-- **NEXT TASK: implement the enrichment roadmap** at
-  `docs/plans/2026-06-27-enrichment-roadmap.md` (from the agent-players' feedback —
-  ranked variables + tissue graph + intel/scouting design, with formulas). Order:
-  (1) tissue graph 3–5 nodes, (2) core variables 1–12, (3) explicit intel/scouting
-  (scout/snitch/investigate — the user's "scouts/snitches"), (4) environment layer,
-  (5) mutation_load + biofilms. Add depth via VISIBLE env indicators, not new buttons.
-  This is the user's "more variables → casual-simulation depth" ask. Enrich
-  `ecosystem.mjs` first (it's the strongest mode), keep solo/versus intact.
-- Also pending: tune versus to ~50/50; optional browser UI for versus/ecosystem.
+Enrichment roadmap `docs/plans/2026-06-27-enrichment-roadmap.md` — progress:
+- ✅ (1) tissue graph 4 nodes — DONE (commit 62a065f)
+- ✅ (2) core variables 1–12 — DONE (commit 62a065f, council-balanced)
+- ✅ (3) intel/scouting scout/snitch/investigate — DONE (commit 66a3494)
+- ☐ (4) environment 2nd layer: pH/temperature, innate/adaptive/regulatory immune
+  cells, immune_exhaustion (roadmap vars 13–19). Add as VISIBLE modifiers on
+  existing actions, not new buttons. (oxygen niche already in via preferredO2.)
+- ☐ (5) mutation_load + biofilms (stealth-vs-armor builds; roadmap vars 20, 8).
+- Also pending: tune versus to ~50/50; **no browser UI for ecosystem yet** (it's
+  headless + agent only — a "watch model matches live" canvas is the big optional next).
+Principle: depth via indicators that change the value of existing actions.
 
 ## Notes
 - `web/package.json` is `type:module`; agent `.mjs` import `../web/src/*.js`.
