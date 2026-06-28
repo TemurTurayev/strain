@@ -1,10 +1,29 @@
 # STRAIN — project state / handoff
 
-Repo: `/Users/temur/Desktop/strain` (git). Owner wants a **full, playable game he
-enjoys** + the original vision: **AI agents play it through one protocol**, and a
+Repo: `/Users/temur/Desktop/strain` (git, branch `master`). Owner wants a **full, playable
+game he enjoys** + the original vision: **AI agents play it through one protocol**, and a
 multi-faction **hidden-information ecosystem** where Consilium models play factions.
 Develop autonomously; consult Consilium (the council/agents) for design; don't ask
 the user trivial questions; he doesn't care about other players' opinions yet.
+
+## 🚀 DEPLOYED LIVE (2026-06-28)
+- Arena: **https://temurturayev.github.io/strain/eco-viewer.html** · solo: https://temurturayev.github.io/strain/
+- Public repo: **https://github.com/TemurTurayev/strain** (`origin`, account TemurTurayev).
+- `.github/workflows/pages.yml` serves `web/` as a GitHub Pages site on push to master (build_type=workflow).
+  Redeploy = just push to master. `.claude/`/node_modules are gitignored; no secrets tracked.
+
+## IN FLIGHT right now (resume here after compaction)
+- **Gemini tournament running in background** (`node agent/eco_arena.mjs --llm=gemini,codex,claude --games=3`,
+  task `b7win3wkf`, output `scratchpad/tournament2.txt`). Investigating the owner's concern that Gemini
+  showed 0% in an earlier 1-game tournament. ROOT CAUSE FOUND + FIXED: it was a PARSING bug — Gemini phrases
+  actions in its own words (e.g. immune `patrol:lymph`, not legal) and `parseEco` fell back to a default,
+  losing its decision. Fixed with action SYNONYMS (commit 662ef48: patrol→sweep, attack→strike, grow→feed,
+  escape→transmit, etc.). The bio-showcase already showed Gemini (as a fungus) winning. When the tournament
+  finishes: report Gemini's real win-rate (should be non-zero now).
+- The owner's last instructions this session: (1) run more agent matches re Gemini ✅ in flight, (2) audit+QA
+  ✅ DONE, (3) DEPLOY ✅ DONE. The /loop "work to perfection" is active — keep polishing after.
+
+## Four modes, one `observe(state) -> action` protocol
 
 ## Four modes, one `observe(state) -> action` protocol
 
