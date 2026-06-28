@@ -1,5 +1,7 @@
 # STRAIN — a hidden-information immune-system game + AI-agent arena
 
+### ▶ Play it live: **https://temurturayev.github.io/strain/eco-viewer.html**
+
 A browser game (vanilla JS, no build) where microbe colonies grow inside a host and
 race to **transmit** to a new host, while the host's **immune system** — which only sees
 what it has *recognised* — hunts them across a graph of tissue zones (gut / blood / lung
@@ -12,10 +14,11 @@ It models real immunology: **organism types** (bacterium / virus / fungus), a hi
 virulent pathogens; viruses and fungi are suppressed but never eradicated.
 
 ## Play / watch
-- **Arena (watch matches):** open [`web/eco-viewer.html`](web/eco-viewer.html) — a recorded
-  or live game replays on the tissue graph with per-faction fog-of-war panels.
-- **Solo game:** [`web/index.html`](web/index.html).
-- Served as a static site via GitHub Pages (`.github/workflows/pages.yml`).
+- **Arena (watch matches):** **[temurturayev.github.io/strain/eco-viewer.html](https://temurturayev.github.io/strain/eco-viewer.html)**
+  — opening it runs a fresh live match on the tissue graph with per-faction fog-of-war panels.
+- **Solo game:** **[temurturayev.github.io/strain/](https://temurturayev.github.io/strain/)**.
+- Served as a static site via GitHub Pages (`.github/workflows/pages.yml` deploys `web/`).
+  Source for those pages: [`web/eco-viewer.html`](web/eco-viewer.html), [`web/index.html`](web/index.html).
 
 ## AI agents
 - `node agent/ecosystem.mjs --A=llm:gemini --B=llm:codex --immune=llm:claude` — three models play.
