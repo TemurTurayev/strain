@@ -54,7 +54,8 @@ function colonyPrompt(o) {
     "ZONES you can sense (mass grows where glucose is high and oxygen suits you; blood is rich+iron but a kill-zone; lymph is a memory trap):",
     zlines,
     `Signaling Molecules (SM) ${o.me.sm} — fund espionage.${o.scout_intel ? ` SCOUT INTEL: zone ${o.scout_intel.zone} has rival_presence ~${o.scout_intel.rival_presence}.` : ""}`,
-    "Actions: feed (grow in your dominant zone, but loud) · move:<zone> (migrate ~40% of your mass to an ADJACENT zone) · hide (drop signature, no growth) · toxin (poison the zone + rivals, costs iron & 10 of your own mass, very loud) · scout:<zone> (spend SM to recon a neighbour's rival presence) · snitch:<zone> (spend SM to frame a rival there — the immune gets a tip and the rival's signature spikes) · transmit (escape).",
+    "Actions: feed (grow in your dominant zone, but loud) · move:<zone> (migrate ~40% of your mass to an ADJACENT zone) · hide (drop signature, no growth) · toxin (poison the zone + rivals, costs iron & 10 of your own mass, very loud) · scout:<zone> (spend SM to recon a neighbour's rival presence) · snitch:<zone> (spend SM to frame a rival there — the immune gets a tip and the rival's signature spikes) · transmit (TWO-STEP escape: the FIRST transmit PREPARES you — exposed for one tick — then issue transmit AGAIN next tick to actually escape, unless you got recognised in between).",
+    o.me.preparing_transmit ? "*** YOU ARE MID-ESCAPE — issue transmit NOW to complete it before the immune recognises you. ***" : "",
     "WARNING: a bulge sitting at an exit leaks detection BEFORE you escape — and the bigger you get the faster you're recognised (lock rises with your size). Transmit the MOMENT presence>=threshold & quorum>=75 & lock<65; waiting only raises lock.",
     `STRATEGY: competition is ${o.competition} — if medium/high a rival is racing you unseen; scout:<neighbour> to find them, or snitch:<their zone> to make the immune chase THEM instead of you. ${o.me.detected >= 45 ? "You're getting recognised — hide or bolt now." : ""}`,
     "Reply with ONE action, e.g. 'feed', 'move:blood', 'scout:lung', 'snitch:gut', or 'transmit'.",
@@ -66,7 +67,7 @@ function immunePrompt(o) {
     `  ${z}: anomaly ${zw.anomaly}, inflam ${zw.inflammation}, drain ${zw.nutrient_drain}, immune ${zw.immune_presence}x${zw.is_exit ? " EXIT" : ""}${zw.contained ? " QUARANTINED" : ""}`
   ).join("\n");
   const cs = o.contacts.length
-    ? o.contacts.map((c) => `${c.id}(lock ${c.lock}, ~load ${c.est_load}, in [${c.zones.join(",")}], memory ${c.memory})`).join("; ")
+    ? o.contacts.map((c) => `${c.id}(lock ${c.lock}, ~load ${c.est_load}, in [${c.zones.join(",")}]${c.escaping ? ", ⚠ESCAPING NOW — push its lock past 65 or strike it THIS tick!" : ""})`).join("; ")
     : "none localised yet";
   return [
     "You are the HOST IMMUNE SYSTEM. Hidden microbe colonies grow and try to escape. You only act on what you've localised; everything else shows up as per-zone ANOMALIES.",

@@ -178,6 +178,7 @@ function observeColony(world, id) {
       preferred_oxygen: c.preferredO2,
       sm: +c.sm.toFixed(1),
       virulence: +(c.virulence * 100).toFixed(0), // A3: own stat (immune only infers it via faster lock)
+      preparing_transmit: c.preparing > 0,         // you've telegraphed — issue transmit again to escape
     },
     zones: zoneView,
     host: { integrity: +world.host.integrity.toFixed(0), toxin: +world.host.toxin.toFixed(0) },
