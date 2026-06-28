@@ -46,6 +46,8 @@ node agent/play.mjs --adapter=llm --provider=gemini      # agent plays solo
 node agent/arena.mjs --llm=gemini,codex,claude           # solo agent leaderboard
 node agent/versus.mjs --colony=llm:gemini --immune=llm:codex   # asymmetric agent vs agent
 node agent/ecosystem.mjs --A=llm:gemini --B=llm:codex --immune=llm:claude  # 3-faction hidden-info
+node agent/eco_arena.mjs --games=15                      # ecosystem tournament/leaderboard (heuristic, instant)
+node agent/eco_arena.mjs --llm=gemini,codex,claude --games=1  # rank MODELS across roles (slow)
 node balance_sim.mjs ; node versus_sim.mjs ; node eco_sim.mjs   # balance harnesses
 ```
 Consilium binary: `/Users/temur/Desktop/Claude/consilium/target/release/consilium`
