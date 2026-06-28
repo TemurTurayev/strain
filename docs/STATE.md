@@ -40,6 +40,8 @@ the user trivial questions; he doesn't care about other players' opinions yet.
 ## Run
 ```
 # solo: serve web/ with no-cache: python3 web/serve_nocache.py  -> http://localhost:5188
+# arena viewer: same server -> http://localhost:5188/eco-viewer.html (auto-runs a live game)
+node agent/record.mjs --A=heuristic --B=heuristic --immune=heuristic > game.json  # record a match for the viewer
 node agent/play.mjs --adapter=llm --provider=gemini      # agent plays solo
 node agent/arena.mjs --llm=gemini,codex,claude           # solo agent leaderboard
 node agent/versus.mjs --colony=llm:gemini --immune=llm:codex   # asymmetric agent vs agent
@@ -51,16 +53,32 @@ Consilium binary: `/Users/temur/Desktop/Claude/consilium/target/release/consiliu
 
 ## IN FLIGHT (resume after compaction)
 Enrichment roadmap `docs/plans/2026-06-27-enrichment-roadmap.md` — progress:
-- ✅ (1) tissue graph 4 nodes — DONE (commit 62a065f)
-- ✅ (2) core variables 1–12 — DONE (commit 62a065f, council-balanced)
-- ✅ (3) intel/scouting scout/snitch/investigate — DONE (commit 66a3494)
-- ☐ (4) environment 2nd layer: pH/temperature, innate/adaptive/regulatory immune
-  cells, immune_exhaustion (roadmap vars 13–19). Add as VISIBLE modifiers on
-  existing actions, not new buttons. (oxygen niche already in via preferredO2.)
-- ☐ (5) mutation_load + biofilms (stealth-vs-armor builds; roadmap vars 20, 8).
-- Also pending: tune versus to ~50/50; **no browser UI for ecosystem yet** (it's
-  headless + agent only — a "watch model matches live" canvas is the big optional next).
+- ✅ (1) tissue graph 4 nodes — DONE (62a065f)
+- ✅ (2) core variables 1–12 — DONE (62a065f, council-balanced)
+- ✅ (3) intel/scouting scout/snitch/investigate — DONE (66a3494)
+- ✅ (4/5) SECOND-LAYER DEPTH — DONE (2587232). A second Consilium council vetted the
+  raw vars 13–22 and CUT the risky ones (sessile fortress, virulence-misfire, fatigue
+  collapse, strike-crit); shipped the two-edged keepers: `resistance` (strikes adapt →
+  immune must rotate targets), `fibrosis` (over-fought nodes scar both regen AND
+  immune_presence), `virulence` (toxin build: +feed, +detect tax). Rebalanced to
+  colony 50 / immune 50 / 0 host-death over 1200 games; node + archetype gates PASS.
+  Build spec: `docs/plans/2026-06-28-build-spec.md`.
+- ✅ BROWSER ARENA — DONE (f9be7b1). `web/eco-viewer.html` + `web/src/viewer/*` +
+  `agent/record.mjs`. Watch matches on the tissue graph: node-graph canvas (blobs,
+  detection heat, exit rings, immune-action FX), per-faction fog-of-war side panels +
+  Reveal-Truth toggle, scrubber/play/seed, runs heuristic games live in-browser OR
+  loads a recorded JSON (EcoReplay v1; bare transcripts play in degraded mode).
+- Still pending: tune VERSUS to ~50/50; optional — richer arena (drama/narration,
+  leaderboard) deferred to v2; wire LLM-match recording button.
 Principle: depth via indicators that change the value of existing actions.
+
+## How the work was split (Consilium)
+Design + balance review ran on Consilium councils (excellent). Autonomous `conduct`
+coding was unreliable here (JS-harness verification confusion; a parallel-repo review
+false-halt) — so the engine/balance + arena data-layer were hand-finished and curated,
+with Consilium kept on design + `review`. Run a viewer match recording with
+`node agent/record.mjs --A=llm:gemini --B=llm:codex --immune=llm:claude > game.json`
+then drag the JSON onto eco-viewer.html.
 
 ## Notes
 - `web/package.json` is `type:module`; agent `.mjs` import `../web/src/*.js`.
