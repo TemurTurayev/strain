@@ -24,6 +24,18 @@ infection") survive even a strong (hypervigilant) host. Proven by deterministic 
 NOTE: headless preview can't show the rAF END-SCREEN animation (`document.hidden=true` pauses
 requestAnimationFrame) — affects ALL endings, not a bug; verify end screens in a real tab.
 
+**Consilium played solo with the types + QA audit (2026-06-29, deployed d377f1f).** Agent
+harness made type-aware (`agent/runner.mjs` evaluate(s,strain); `cli.mjs` prompt surfaces
+organism_type+reservoir; `play.mjs --type`, `arena.mjs --types` + persist column). gemini/
+codex/claude each played all 3 types → **9/9 transmit wins** (virus fastest t9, bacterium
+~t13-14, fungus ~t15-17): types differentiate, all winnable, no softlocks. **QA audit (3
+parallel review agents)** found+fixed: CRITICAL `autopsy.js` (3 `evaluate()` omitted build →
+persist misclassified as loss → wrong cause-of-death/PONR; build threaded through); HIGH
+persist played the 'loss' sting (added neutral 'persist' audio cue); MEDIUM engine.js imported
+unversioned everywhere (stale-cache crash risk for returning visitors → versioned ?v=3 across
+all 6 importers, single instance preserved); MEDIUM arena hid persist (added column). Regression
+PASS, solo loads 0 errors, live-verified.
+
 ## Gemini tournament RESOLVED (2026-06-29)
 Final leaderboard (9 LLM games): codex 67%, **gemini 33%** (was 0% — the synonym parse fix
 worked, commit 662ef48), claude 0%. The 0% was purely a parse bug. claude's 0% is a tiny-
