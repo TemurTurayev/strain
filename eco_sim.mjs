@@ -153,7 +153,7 @@ if (isBio) {
       for (let g = 0; g < GAMES; g++) {
         const { out } = playOneFull(cp.fn, ip.fn);
         if (out.type === "transmit") cWins++;
-        else if (out.type !== "host_death") iWins++;
+        else if (out.type === "cleared" || out.type === "contained") iWins++; // chronic/latent/stalemate are host-carrier, not immune wins
       }
       const c = 100 * cWins / GAMES, i = 100 * iWins / GAMES;
       grid[cp.name][ip.name] = { c, i };
@@ -179,8 +179,8 @@ if (isBio) {
   }
   console.log(`  [no-dominant-archetype] ${dom ? "FAIL" : "PASS"}`);
 } else {
-  const tally = { colony: 0, immune: 0, host_death: 0 };
-  const winByHome = { gut: 0, lung: 0, blood: 0 };
+  const tally = { colony: 0, immune: 0, persist: 0, host_death: 0 };
+  const winByHome = { gut: 0, lung: 0 };
   const byTick = [];
   let transmitTicks = 0, transmitCount = 0;
 
@@ -193,7 +193,8 @@ if (isBio) {
       winByHome[seededHome[out.winner]]++;
     }
     else if (out.type === "host_death") tally.host_death++;
-    else tally.immune++;
+    else if (out.type === "chronic" || out.type === "latent" || out.type === "stalemate") tally.persist++; // host carries it — not an immune win
+    else tally.immune++; // cleared / contained
     byTick.push(tick);
   }
 
@@ -202,6 +203,7 @@ if (isBio) {
   console.log(`ECOSYSTEM v2 balance over ${GAMES} games (heuristic + 12% noise):`);
   console.log(`  colony transmit (a colony wins): ${tally.colony}  ${pct(tally.colony)}`);
   console.log(`  immune wins (cleared/contained): ${tally.immune}  ${pct(tally.immune)}`);
+  console.log(`  persistent (host carrier):       ${tally.persist}  ${pct(tally.persist)}`);
   console.log(`  host death (mutual loss):        ${tally.host_death}  ${pct(tally.host_death)}`);
   console.log(`  avg game length: ${avg(byTick)} ticks (cap ${MAX_TICKS})`);
   

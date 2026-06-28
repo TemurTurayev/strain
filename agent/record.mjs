@@ -7,7 +7,7 @@
 import { freshEcosystem, observeEco, resolveEcoTick, colonyIds, MAX_TICKS } from "../web/src/ecosystem.mjs";
 import { buildFrame, EXPORT_CONFIG } from "../web/src/viewer/live.js";
 import { makeController } from "./ecosystem.mjs";
-import { defaultColonyPolicy, defaultImmunePolicy } from "../web/src/ecosystem.mjs";
+import { defaultColonyPolicy, defaultImmunePolicy, IMMUNE_STRENGTHS } from "../web/src/ecosystem.mjs";
 
 const PALETTE = ["#e5484d", "#30a46c", "#e2a336", "#8e6cd9"];
 
@@ -49,8 +49,9 @@ if (isMain) {
     { id: "A", stealth: 3, preferredO2: 80, home: "lung", type: args.typeA || "bacterium" },
     { id: "B", stealth: 7, preferredO2: 20, home: "gut", type: args.typeB || "bacterium" },
   ];
-  const STRENGTH = { weak: 0.7, healthy: 1.0, robust: 1.3 };
-  const hostOpts = { immune_strength: STRENGTH[args.host] ?? 1.0 };
+  // canonical keys are immunocompromised/healthy/robust (engine); accept 'weak' as an alias
+  const immune_strength = IMMUNE_STRENGTHS[args.host] ?? (args.host === "weak" ? IMMUNE_STRENGTHS.immunocompromised : 1.0);
+  const hostOpts = { immune_strength };
   const ctlSpec = (spec, faction) => (!spec || spec === "heuristic")
     ? (faction === "immune" ? defaultImmunePolicy : defaultColonyPolicy)
     : makeController(spec, faction);

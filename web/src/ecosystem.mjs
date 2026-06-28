@@ -588,20 +588,26 @@ function upkeep(w, log) {
     if (c.preparing > 0) c.preparing -= 1;           // the transmit window closes if not completed next tick
     // ---- per-type persistence: ACTIVE load is separate from a hidden RESERVOIR ----
     const weak = w.immune.energy / 12;
+    // reactivation/recolonisation seeds the LATENT FOCUS — fall back to home when active
+    // is all-zero (dominantZone degenerates to gut), and never pump past the exit gate.
+    const seedZone = totalLoad(c) > 0.5 ? dominantZone(c) : c.home;
+    const reseedRoom = Math.max(0, (EXIT_THRESH[seedZone] ?? 60) * 0.6 - c.presence[seedZone]);
     if (c.type === "bacterium") c.biofilm = Math.max(0, c.biofilm - 1); // the wall slowly sloughs off
-    if (c.type === "virus" && c.reservoir > 0) {        // latency: the reservoir reactivates, faster as immunity wanes
-      const rate = w.host.immune_strength < 1 ? 0.02 + 0.08 * (1 - weak) : 0.005;
-      const react = c.reservoir * rate;
-      c.presence[dominantZone(c)] += react;
-      c.reservoir = Math.max(0, c.reservoir - react);
+    if (c.type === "virus") {                           // latency establishes during active infection (not only when struck)
+      c.reservoir = Math.min(120, c.reservoir + Math.min(totalLoad(c), 20) * 0.02);
+      if (c.reservoir > 0) {                            // ...then reactivates as immunity wanes (continuous in energy, scaled by host strength)
+        const rate = (0.005 + 0.06 * (1 - weak)) / (w.host.immune_strength || 1);
+        const react = Math.min(reseedRoom, c.reservoir * rate);
+        c.presence[seedZone] += react;
+        c.reservoir = Math.max(0, c.reservoir - react);
+      }
     }
     if (c.type === "fungus") {                          // colonisation: a standing reservoir keeps recolonising — you suppress, not eradicate
       c.reservoir = Math.min(40, c.reservoir + Math.min(totalLoad(c), 20) * 0.03);
-      c.presence[dominantZone(c)] += c.reservoir * (0.06 + 0.10 * (1 - weak));
+      c.presence[seedZone] += Math.min(reseedRoom, c.reservoir * (0.06 + 0.10 * (1 - weak)));
     }
-    // true eradication ONLY when active is gone AND no reservoir survives
-    const persists = c.reservoir > 0.5;
-    if (totalLoad(c) <= 0.5 && !persists) { c.alive = false; log.push(`${c.id} eradicated`); }
+    // true eradication ONLY for a non-persistent organism with no surviving reservoir/biofilm
+    if (totalLoad(c) <= 0.5 && !isPersistent(c)) { c.alive = false; log.push(`${c.id} eradicated`); }
   }
   for (const t of w.tips) t.age += 1;
   w.tips = w.tips.filter((t) => t.age <= TIP_TTL);
@@ -615,7 +621,7 @@ function upkeep(w, log) {
     // hunting ground (immune_presence), recomputed fresh from base so it never drifts.
     zw.fibrosis = Math.max(0, zw.fibrosis - 0.5);
     const scarMul = clamp(1 - zw.fibrosis / 80, 0.5, 1);
-    zw.immune_presence = ZONE_BASE[z].immune * scarMul * (w.host.immune_strength || 1); // host immune strength scales detection+damage everywhere
+    zw.immune_presence = ZONE_BASE[z].immune * scarMul * (w.host.immune_strength ?? 1); // host immune strength scales detection+damage everywhere
     const regenMul = clamp(1 - zw.inflammation / 100, 0.35, 1.0);
     zw.glucose = clamp(zw.glucose + ZONE_BASE[z].g_regen * regenMul * scarMul, 0, ZONE_BASE[z].glucose);
     zw.iron = clamp(zw.iron + ZONE_BASE[z].i_regen * regenMul * scarMul, 0, ZONE_BASE[z].iron);
@@ -657,9 +663,10 @@ export function isPersistent(c) {
   return c.reservoir > 0.5 || (c.type === "bacterium" && c.biofilm >= 30);
 }
 
-function classifyPersistent(persistent) {
-  // high steady active load = chronic active disease; suppressed-to-a-trickle = latent carrier
-  const maxActive = Math.max(...persistent.map(totalLoad));
+function classifyPersistent(allLive) {
+  // judge the WHOLE live population: any high active load anywhere = chronic active
+  // disease; everything suppressed to a trickle (reservoir only) = latent carrier.
+  const maxActive = Math.max(...allLive.map(totalLoad));
   if (maxActive <= 4) return { type: "latent", winner: "host", reason: "latent carrier — infection suppressed to a hidden reservoir that can flare later" };
   return { type: "chronic", winner: "host", reason: "chronic active infection — the immune system manages it but cannot eradicate it" };
 }
@@ -673,10 +680,12 @@ export function evaluateEco(w) {
   if (live.length === 0) return { type: "cleared", winner: "immune", reason: "infection eradicated — active load and reservoir both gone" };
   const persistent = live.filter(isPersistent);
   // early equilibrium: a settled persistent infection is decided without waiting out the clock
-  if (persistent.length && (w._stable || 0) >= 18) return classifyPersistent(persistent);
+  if (persistent.length && (w._stable || 0) >= 18) return classifyPersistent(live);
   if (w.tick >= MAX_TICKS) {
-    if (persistent.length) return classifyPersistent(persistent);
-    return { type: "contained", winner: "immune", reason: "immune contained the infection before it could spread or persist" };
+    // a persistent type that survived = host carrier (chronic/latent); a non-persistent
+    // one that never transmitted = the immune prevented spread (contained — its job).
+    if (persistent.length) return classifyPersistent(live);
+    return { type: "contained", winner: "immune", reason: "immune contained the infection to the time limit — it never spread or persisted" };
   }
   return null;
 }
@@ -730,9 +739,11 @@ function cloneWorld(w) {
       ...w,
       host: { ...w.host },
       immune: { ...w.immune },
+      tips: w.tips.map((t) => ({ ...t })), // deep-copy so a tick can't mutate the prior world's tips
       zones: Object.fromEntries(Object.entries(w.zones).map(([k, v]) => [k, { ...v }])),
       colonies: Object.fromEntries(Object.entries(w.colonies).map(([k, v]) => [k, {
         ...v, presence: { ...v.presence }, signature: { ...v.signature },
+        lastScout: v.lastScout ? { ...v.lastScout } : v.lastScout,
       }])),
       log: [],
     };

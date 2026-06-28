@@ -36,6 +36,7 @@ const OUTCOME_TEXT = {
   contained: () => `🛡️ Immune wins — contained before it could spread or persist`,
   chronic: () => `🦠 CHRONIC infection — the immune system manages it but cannot eradicate it`,
   latent: () => `🌙 LATENT carrier — suppressed, but a hidden reservoir remains (it can flare later)`,
+  stalemate: () => `⚖️ Stalemate — the infection held on but never spread or was cleared`,
   host_death: () => `💀 Host died — everyone loses`,
 };
 
