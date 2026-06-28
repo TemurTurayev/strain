@@ -51,6 +51,17 @@ function parseAction(text) {
   return null;
 }
 
+// generic: hand any prompt to a model via Consilium, return its raw text.
+export async function askModel(provider, prompt, timeoutMs = 90000) {
+  const { stdout } = await runFile(CONSILIUM, ["run", "--provider", provider, prompt], {
+    timeout: timeoutMs,
+    maxBuffer: 1 << 20,
+  });
+  return stdout;
+}
+
+export { parseAction };
+
 export function makeCliAdapter({ provider = "gemini", timeoutMs = 90000 } = {}) {
   return async function cliAdapter(obs) {
     const { stdout } = await runFile(CONSILIUM, ["run", "--provider", provider, buildPrompt(obs)], {
