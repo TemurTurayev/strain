@@ -36,6 +36,14 @@ unversioned everywhere (stale-cache crash risk for returning visitors → versio
 all 6 importers, single instance preserved); MEDIUM arena hid persist (added column). Regression
 PASS, solo loads 0 errors, live-verified.
 
+**Solo type polish (2026-06-29, all live):** (1) **type-aware colony canvas** (`colony.js`
+?v=3) — virus = violet hexagonal capsids, fungus = amber elongated hyphae, bacterium =
+unchanged green blobs; palette also drives biofilm web/particles; virus/fungus get a dim
+pulsing reservoir halo + dormant ring scaling with `state.reservoir`. (2) **reservoir HUD
+readout** (`index.html` + main.js?v=4) — numeric "Reservoir N" shown only for virus/fungus.
+(3) **how-to "Organism types" section** explaining the 3 types + reservoir/latent/chronic.
+All browser-verified per type (distinct look, 0 errors) + deployed (7edc40c).
+
 ## Gemini tournament RESOLVED (2026-06-29)
 Final leaderboard (9 LLM games): codex 67%, **gemini 33%** (was 0% — the synonym parse fix
 worked, commit 662ef48), claude 0%. The 0% was purely a parse bug. claude's 0% is a tiny-
