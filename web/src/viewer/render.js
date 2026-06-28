@@ -103,7 +103,11 @@ export function mountViewer(canvas) {
 
     drawImmuneAction(ctx, frame.actions?.immune, t, r);
 
-    for (const e of (events || [])) if (e.type === "transmit") fx({ zone: e.zone, kind: "transmit" });
+    for (const e of (events || [])) {
+      if (e.type === "transmit") fx({ zone: e.zone, kind: "transmit" });
+      else if (e.type === "strike") fx({ zone: e.zone, kind: "strike" });
+      else if (e.type === "toxin") fx({ zone: e.zone, kind: "toxin" });
+    }
     stepParticles(ctx);
 
     drawHud(ctx, frame, cols, meta);
@@ -145,10 +149,15 @@ export function mountViewer(canvas) {
     }
   }
 
+  const FX = {
+    transmit: { n: 30, col: "120,230,150", life: 0.9, sp: 90 },
+    strike: { n: 16, col: "255,80,80", life: 0.6, sp: 70 },
+    toxin: { n: 14, col: "190,235,120", life: 0.7, sp: 55 },
+  };
   function fx(event) {
     const c = zoneCenter(event.zone || "blood"); if (!c.x && !c.y) return;
-    const n = event.kind === "transmit" ? 24 : 10;
-    for (let i = 0; i < n; i++) { const a = Math.random() * 6.283, sp = 30 + Math.random() * 70; particles.push({ x: c.x, y: c.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t0: perfNow(), life: 0.7, col: event.kind === "transmit" ? "120,230,150" : "255,255,255" }); }
+    const k = FX[event.kind] || FX.transmit;
+    for (let i = 0; i < k.n; i++) { const a = Math.random() * 6.283, sp = k.sp * (0.4 + Math.random() * 0.6); particles.push({ x: c.x, y: c.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t0: perfNow(), life: k.life, col: k.col }); }
   }
   function stepParticles(ctx) {
     const now = perfNow();
