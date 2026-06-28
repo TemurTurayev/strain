@@ -41,7 +41,7 @@ export const QUORUM_TRANSMIT = 75;  // quorum needed to transmit (total_load ~60
 export const QUORUM_TOXIN = 35;     // quorum needed to release toxins (total_load ~28)
 export const DETECT_REVEAL = 25;    // immune_lock above which a colony becomes a visible "contact"
 export const LOCK_TO_STRIKE = 40;   // immune_lock needed before a strike actually bites
-export const LOCK_TO_TRANSMIT = 70; // above this recognition, the exit is too watched to slip out
+export const LOCK_TO_TRANSMIT = 65; // above this recognition, the exit is too watched to slip out
 const MEMORY_CAP = 80;
 const HOST_MIN_TRANSMIT = 25;       // a dying host can't be transmitted from
 const BASE_GROW = 8;
@@ -54,6 +54,10 @@ const BASE_GROW = 8;
 export const SCOUT_COST = 3;
 export const SNITCH_COST = 6;
 const SM_CAP = 20;
+// immune action energy costs (enforced as preconditions — see resolveEcoTick)
+const SCAN_ENERGY = 1;
+const CONTAIN_ENERGY = 2;
+const STRIKE_ENERGY = 3;
 const INVESTIGATE_ENERGY = 4;
 const TIP_TTL = 3;                   // ticks a tip stays on the immune's board
 
@@ -268,21 +272,27 @@ export function resolveEcoTick(world, actions) {
   if (iact === "sweep") {
     const z = ZONES.includes(itarget) ? itarget : busiestZone(w);
     if (z) sweepZone(w, z, log);
-    im.energy += 2;
+    im.energy += 2; // sweep is the immune's free recon + income
   } else if (iact === "scan") {
-    const c = w.colonies[itarget] || hottestUndetected(live());
-    if (c) {
-      const gain = (18 + sum(c.signature) * 0.15 + c.memory * 0.4) * (1 + c.memory / 100);
-      c.lock = clamp(c.lock + gain, 0, 100);
-      gainMemory(c, sum(c.signature), 1);
-      log.push(`immune scan ${c.id} (+${gain.toFixed(0)} lock)`);
+    if (im.energy < SCAN_ENERGY) { log.push("immune scan ✗ (no energy)"); }
+    else {
+      const c = w.colonies[itarget] || hottestUndetected(live());
+      if (c) {
+        const gain = (18 + sum(c.signature) * 0.15 + c.memory * 0.4) * (1 + c.memory / 100);
+        c.lock = clamp(c.lock + gain, 0, 100);
+        gainMemory(c, sum(c.signature), 1);
+        log.push(`immune scan ${c.id} (+${gain.toFixed(0)} lock)`);
+      }
+      im.energy -= SCAN_ENERGY;
     }
-    im.energy -= 1;
   } else if (iact === "strike") {
-    strikeColony(w, w.colonies[itarget] || hottestContact(live()), log);
+    strikeColony(w, w.colonies[itarget] || hottestContact(live()), log); // gated on energy inside
   } else if (iact === "contain") {
-    const z = ZONES.includes(itarget) ? itarget : busiestZone(w);
-    if (z) { w.zones[z].containTimer = 2; im.energy -= 2; w.zones[z].inflammation += 3; w.zones[z].fibrosis = Math.min(40, w.zones[z].fibrosis + 2); log.push(`immune contain ${z} (arms next tick)`); }
+    if (im.energy < CONTAIN_ENERGY) { log.push("immune contain ✗ (no energy)"); }
+    else {
+      const z = ZONES.includes(itarget) ? itarget : busiestZone(w);
+      if (z) { w.zones[z].containTimer = 2; im.energy -= CONTAIN_ENERGY; w.zones[z].inflammation += 3; w.zones[z].fibrosis = Math.min(40, w.zones[z].fibrosis + 2); log.push(`immune contain ${z} (arms next tick)`); }
+    }
   } else if (iact === "investigate") {
     investigateZone(w, ZONES.includes(itarget) ? itarget : newestTipZone(w), log);
   } else if (iact === "tolerize") {
@@ -419,7 +429,11 @@ function snitchColony(w, c, target, log) {
 }
 
 function investigateZone(w, z, log) {
-  if (!z) { w.immune.energy -= 1; log.push("immune investigate (no tip)"); return; }
+  if (!z) { log.push("immune investigate ✗ (no tip)"); return; }
+  if (w.immune.energy < INVESTIGATE_ENERGY) { log.push("immune investigate ✗ (no energy)"); return; }
+  // M1: investigate must act on an actual tip — it can't tip-free hard-counter stealth
+  const hasTip = w.tips.some((t) => t.zone === z && t.age <= TIP_TTL);
+  if (!hasTip) { w.immune.energy -= INVESTIGATE_ENERGY; log.push(`immune investigate ${z} ✗ (no tip there — energy wasted)`); return; }
   w.immune.energy -= INVESTIGATE_ENERGY;
   const real = Object.values(w.colonies)
     .filter((r) => r.alive && !r.transmitted && r.presence[z] > 4)
@@ -475,7 +489,8 @@ function sweepZone(w, z, log) {
 }
 
 function strikeColony(w, c, log) {
-  w.immune.energy -= 3;
+  if (w.immune.energy < STRIKE_ENERGY) { log.push("immune strike ✗ (no energy)"); return; }
+  w.immune.energy -= STRIKE_ENERGY;
   if (!c || !c.alive || c.transmitted || c.lock < LOCK_TO_STRIKE) {
     w.host.integrity -= 4;
     if (c) c.signature[dominantZone(c)] += 2;
@@ -505,15 +520,13 @@ function gainMemory(c, detectedSig, mul = 1, flat = 0) {
 function upkeep(w, log) {
   for (const c of Object.values(w.colonies)) {
     if (!c.alive || c.transmitted) continue;
-    // recognition leaks from signature (weighted by immune strength) AND from sheer
-    // biomass — a large bulge of cells is intrinsically hard to hide anywhere.
+    // recognition leaks from signature (weighted by immune strength) AND, NONLINEARLY,
+    // from sheer biomass — a big colony is intrinsically hard to hide, so lock becomes a
+    // deadline as you grow (load 50 -> +3.7/tick, 70 -> +7.3, 90 -> +12). This is what
+    // lets the immune read and intercept a colony before it transmits.
     let passive = 0;
-    let maxPresence = 0;
-    for (const z of ZONES) {
-      passive += c.signature[z] * 0.08 * w.zones[z].immune_presence;
-      if (c.presence[z] > maxPresence) maxPresence = c.presence[z];
-    }
-    passive += maxPresence * 0.045;
+    for (const z of ZONES) passive += c.signature[z] * 0.08 * w.zones[z].immune_presence;
+    passive += Math.pow(totalLoad(c) / 33, 2);
     c.lock = clamp(c.lock + passive, 0, 100);
     c.lock = clamp(c.lock + c.virulence * 1.2, 0, 100);  // A3: virulent strains run loud
     c.lock = Math.max(c.lock - 3, c.memory * 0.25); // decays, memory floors it (soft enrage)
