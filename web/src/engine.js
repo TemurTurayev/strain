@@ -31,7 +31,7 @@ const HOST_BASE = {
   startHost: 100,    // starting host health
 };
 export const HOSTS = {
-  healthy:        { ...HOST_BASE, key:"healthy", name:"Healthy host", blurb:"A textbook host. No quirks — pure skill check." },
+  healthy:        { ...HOST_BASE, key:"healthy", name:"Healthy", blurb:"A textbook host. No quirks — pure skill check." },
   feverish:       { ...HOST_BASE, key:"feverish", name:"Feverish", inflDecay:0.82, transmitMod:-8,
                     blurb:"Runs hot: symptoms come easy (transmit −8), but inflammation lingers and keeps the immune system primed." },
   mucus:          { ...HOST_BASE, key:"mucus", name:"Mucus flow", windowTurns:2, adhesionMod:1.5,
@@ -157,6 +157,40 @@ export function applyMutation(mut, s, build){
     if (mut.id==="bloom"){ s.colony_load *= 1.2; s.fixation = Math.min(100, (s.fixation||0)+6); }
   } else if (mut.apply){ b = mut.apply(build); }
   return { state:s, build:b };
+}
+
+// ---------------------------------------------------------------------------
+// state -> action PROTOCOL. A controller (human UI OR an AI agent) reads this
+// observation each turn and returns one legal action. This is the seam that
+// lets agents play the game (the original vision: replace the player with an
+// agent that watches the metrics and decides).
+// ---------------------------------------------------------------------------
+export const LEGAL_ACTIONS = ["replicate", "suppress", "provoke", "transmit"];
+
+export function observe(state, build){
+  const s = state;
+  const cost = {};
+  for (const a of LEGAL_ACTIONS){
+    try { const [n] = resolve(a, s, build); cost[a] = +(((n.fixation||0) - (s.fixation||0))).toFixed(1); }
+    catch { cost[a] = 0; }
+  }
+  const score = transmitScore(s, build), thr = transmitThreshold(s);
+  return {
+    turn: s.turn,
+    colony_load: +s.colony_load.toFixed(1),
+    host_stability: +s.host_stability.toFixed(1),
+    immune_lockon: +s.immune_lockon.toFixed(1),
+    immune_fixation: +(s.fixation||0).toFixed(1),
+    transmission_window: s.transmission_window,
+    transmit_score: +score.toFixed(1),
+    transmit_threshold: +thr.toFixed(1),
+    can_transmit: s.transmission_window > 0 && score >= thr,
+    load_needed_for_window: +needNow(s, build).toFixed(1),
+    genome: { virulence: build.virulence, stealth: build.stealth, adhesion: build.adhesion, resistance: build.resistance },
+    host: s.host ? { name: s.host.name, note: s.host.blurb } : null,
+    legal_actions: LEGAL_ACTIONS,
+    action_fixation_cost: cost,
+  };
 }
 
 export function evaluate(s){
