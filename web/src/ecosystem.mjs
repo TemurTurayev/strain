@@ -29,8 +29,8 @@ export const EXITS = Object.keys(EXIT_THRESH);
 // DAMAGE/DETECT multiplier (lymph hits ~3x harder than gut). glucose/iron deplete
 // and regenerate toward base; g_regen/i_regen set the refill rate.
 const ZONE_BASE = {
-  gut: { glucose: 100, g_regen: 12, iron: 45, i_regen: 3, oxygen: 15, immune: 0.65 },
-  lung: { glucose: 70, g_regen: 8, iron: 25, i_regen: 2, oxygen: 85, immune: 0.75 },
+  gut: { glucose: 85, g_regen: 11, iron: 45, i_regen: 3, oxygen: 15, immune: 0.70 },
+  lung: { glucose: 72, g_regen: 10, iron: 25, i_regen: 2, oxygen: 85, immune: 0.70 },
   blood: { glucose: 80, g_regen: 10, iron: 90, i_regen: 8, oxygen: 80, immune: 1.5 },
   lymph: { glucose: 35, g_regen: 4, iron: 20, i_regen: 1, oxygen: 50, immune: 2.0 },
 };
@@ -91,6 +91,8 @@ export function freshEcosystem(genomes) {
       lastDrain: 0,
       sm: 0,          // Signaling Molecules — funds scouting/snitching
       lastScout: null, // most recent recon readout (surfaced once, then cleared)
+      resistance: 0,  // A1: adaptation to being struck — softens repeated strikes (immune-owned, hidden)
+      virulence: 0,   // A3: toxin-built aggression — feed kicker + a standing detection tax (colony-owned)
     };
   }
   const zones = {};
@@ -104,6 +106,7 @@ export function freshEcosystem(genomes) {
       drainLast: 0,        // glucose pulled here last tick (an anomaly the immune can read)
       sweptLast: false,    // patrolled last tick (passing through costs extra here)
       containTimer: 0,     // quarantine countdown; >0 means contained (1-tick delayed effect)
+      fibrosis: 0,         // A2: scar tissue from over-fighting — drops BOTH regen and immune_presence here
     };
   }
   return {
@@ -145,7 +148,8 @@ function observeColony(world, id) {
       iron: +zw.iron.toFixed(0),
       oxygen: zw.oxygen,
       inflammation: +zw.inflammation.toFixed(0),
-      immune_pressure: zw.immune_presence,
+      immune_pressure: +zw.immune_presence.toFixed(2),
+      scarring: +zw.fibrosis.toFixed(0),   // A2: shared terrain — colony sees scar tissue
       contained: zw.containTimer > 0,
       signature: here ? +c.signature[z].toFixed(0) : undefined,
       is_exit: EXITS.includes(z),
@@ -168,6 +172,7 @@ function observeColony(world, id) {
       quorum: +quorum(c).toFixed(0),
       preferred_oxygen: c.preferredO2,
       sm: +c.sm.toFixed(1),
+      virulence: +(c.virulence * 100).toFixed(0), // A3: own stat (immune only infers it via faster lock)
     },
     zones: zoneView,
     host: { integrity: +world.host.integrity.toFixed(0), toxin: +world.host.toxin.toFixed(0) },
@@ -194,7 +199,8 @@ function observeImmune(world) {
     zoneReads[z] = {
       inflammation: +zw.inflammation.toFixed(0),
       nutrient_drain: +zw.drainLast.toFixed(0),
-      immune_presence: zw.immune_presence,
+      immune_presence: +zw.immune_presence.toFixed(2),
+      fibrosis: +zw.fibrosis.toFixed(0),   // A2: shared terrain — immune sees its own scarring
       anomaly: +anomalySig.toFixed(0),
       contained: zw.containTimer > 0,
       is_exit: EXITS.includes(z),
@@ -213,6 +219,7 @@ function observeImmune(world) {
         est_load: +Math.max(0, totalLoad(c) * (0.85 + 0.3 * (1 - noise))).toFixed(0),
         zones: ZONES.filter((z) => c.presence[z] > 0.5),
         memory: +c.memory.toFixed(0),
+        adapted: +(c.resistance * 100).toFixed(0), // A1: immune feels its strikes landing softer (% damage absorbed)
       });
     } else {
       hiddenThreat += sum(c.signature);
@@ -275,7 +282,7 @@ export function resolveEcoTick(world, actions) {
     strikeColony(w, w.colonies[itarget] || hottestContact(live()), log);
   } else if (iact === "contain") {
     const z = ZONES.includes(itarget) ? itarget : busiestZone(w);
-    if (z) { w.zones[z].containTimer = 2; im.energy -= 2; w.zones[z].inflammation += 3; log.push(`immune contain ${z} (arms next tick)`); }
+    if (z) { w.zones[z].containTimer = 2; im.energy -= 2; w.zones[z].inflammation += 3; w.zones[z].fibrosis = Math.min(40, w.zones[z].fibrosis + 2); log.push(`immune contain ${z} (arms next tick)`); }
   } else if (iact === "investigate") {
     investigateZone(w, ZONES.includes(itarget) ? itarget : newestTipZone(w), log);
   } else if (iact === "tolerize") {
@@ -321,6 +328,7 @@ function feedColony(w, c, log) {
   const lymphPenalty = z === "lymph" ? 0.45 : 1;
   let grow = BASE_GROW * glucoseFactor * o2match * containFactor * lymphPenalty;
   if (depleted) grow *= 0.7;
+  grow *= (1 + 0.10 * c.virulence); // A3: a virulent strain runs hotter (paid for via toxin)
   c.presence[z] += grow;
   const drained = grow * 1.2;
   zw.glucose = clamp(zw.glucose - drained, 0, 100);
@@ -368,6 +376,7 @@ function toxinColony(w, c, log) {
   zw.inflammation += 6;
   c.signature[z] += 35;
   c.lock = clamp(c.lock + 0.5 * w.host.toxin, 0, 100);
+  c.virulence = Math.min(1, c.virulence + 0.25); // A3: secreting toxins makes the strain more virulent
   const dmg = 8 + 0.12 * w.host.toxin;
   for (const rival of Object.values(w.colonies)) {
     if (rival.id === c.id || !rival.alive || rival.transmitted) continue;
@@ -454,10 +463,11 @@ function tryTransmit(w, c, log) {
 function sweepZone(w, z, log) {
   const zw = w.zones[z];
   zw.sweptLast = true;
+  zw.fibrosis = Math.min(40, zw.fibrosis + 2); // A2: patrolling a node scars it over time
   const exitMul = EXITS.includes(z) ? 1.35 : 1;
   for (const c of Object.values(w.colonies)) {
     if (!c.alive || c.transmitted || c.presence[z] <= 0.5) continue;
-    const gain = (10 * zw.immune_presence + 0.12 * c.signature[z]) * (1 + c.memory / 100) * exitMul * 0.5;
+    const gain = (10 * zw.immune_presence + 0.12 * c.signature[z]) * (1 + c.memory / 100) * exitMul * 0.45;
     c.lock = clamp(c.lock + gain, 0, 100);
     gainMemory(c, c.signature[z], z === "lymph" ? 2 : 1);
   }
@@ -477,11 +487,14 @@ function strikeColony(w, c, log) {
     || dominantZone(c);
   const lockFactor = 0.75 + c.lock / 100;
   const dmg = 10 * w.zones[z].immune_presence * lockFactor;
-  c.presence[z] = Math.max(0, c.presence[z] - dmg);
+  const eff = dmg * (1 - c.resistance);                 // A1: adaptation softens the bite
+  c.presence[z] = Math.max(0, c.presence[z] - eff);
+  c.resistance = Math.min(0.45, c.resistance + 0.12);   // A1: each landed hit raises adaptation
   c.lock = Math.max(0, c.lock - 18);
   w.zones[z].inflammation += 6;
+  w.zones[z].fibrosis = Math.min(40, w.zones[z].fibrosis + 2); // A2: a fought-over node scars
   w.host.integrity -= 2;
-  log.push(`immune strike ${c.id}@${z} −${dmg.toFixed(1)}`);
+  log.push(`immune strike ${c.id}@${z} −${eff.toFixed(1)}`);
 }
 
 function gainMemory(c, detectedSig, mul = 1, flat = 0) {
@@ -502,9 +515,12 @@ function upkeep(w, log) {
     }
     passive += maxPresence * 0.045;
     c.lock = clamp(c.lock + passive, 0, 100);
+    c.lock = clamp(c.lock + c.virulence * 1.2, 0, 100);  // A3: virulent strains run loud
     c.lock = Math.max(c.lock - 3, c.memory * 0.25); // decays, memory floors it (soft enrage)
     for (const z of ZONES) c.signature[z] *= 0.85;
     c.sm = Math.min(SM_CAP, c.sm + Math.max(0, (quorum(c) - 40) / 15)); // espionage currency
+    c.resistance = Math.max(0, c.resistance - 0.04); // A1: adaptation fades if the immune stops hammering
+    c.virulence = Math.max(0, c.virulence - 0.1);    // A3: virulence relaxes without fresh toxin
     if (totalLoad(c) <= 0.5) { c.alive = false; log.push(`${c.id} cleared`); }
   }
   for (const t of w.tips) t.age += 1;
@@ -515,9 +531,14 @@ function upkeep(w, log) {
     zw.inflammation = Math.max(0, zw.inflammation - 4) * 0.92;
     totalInfl += zw.inflammation;
     if (zw.containTimer > 0) zw.containTimer -= 1;
+    // A2: fibrosis decays slowly; while present it scars BOTH the pantry (regen) and the
+    // hunting ground (immune_presence), recomputed fresh from base so it never drifts.
+    zw.fibrosis = Math.max(0, zw.fibrosis - 0.5);
+    const scarMul = clamp(1 - zw.fibrosis / 80, 0.5, 1);
+    zw.immune_presence = ZONE_BASE[z].immune * scarMul;
     const regenMul = clamp(1 - zw.inflammation / 100, 0.35, 1.0);
-    zw.glucose = clamp(zw.glucose + ZONE_BASE[z].g_regen * regenMul, 0, ZONE_BASE[z].glucose);
-    zw.iron = clamp(zw.iron + ZONE_BASE[z].i_regen * regenMul, 0, ZONE_BASE[z].iron);
+    zw.glucose = clamp(zw.glucose + ZONE_BASE[z].g_regen * regenMul * scarMul, 0, ZONE_BASE[z].glucose);
+    zw.iron = clamp(zw.iron + ZONE_BASE[z].i_regen * regenMul * scarMul, 0, ZONE_BASE[z].iron);
   }
   w.host.toxin = clamp(w.host.toxin * 0.85, 0, 100);
   w.host.integrity = clamp(w.host.integrity - w.host.toxin * 0.06 - totalInfl * 0.01, 0, 100);
