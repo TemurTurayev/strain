@@ -83,9 +83,19 @@ Enrichment roadmap `docs/plans/2026-06-27-enrichment-roadmap.md` — progress:
   solo + 3 ecosystem matches (role-rotated) and a council diagnosed "load outruns lock,
   immune can't read transmit": fixed with **nonlinear biomass detection** (`lock +=
   (load/33)²`) + **LOCK_TO_TRANSMIT 70→65** so transmit is readable/interceptable.
-  Ecosystem now colony 49 / immune 51, avg transmit tick ~13 (feedback target t10-13).
-  Solo deliberately NOT changed (protected; the feedback's nonlinear-lock fix doesn't
-  fit solo's low-load window win-path — verified a no-op, reverted).
+  Then the council's #1 fix LANDED (2e5e23e): TWO-STEP TELEGRAPHED TRANSMIT — a ready
+  colony PREPARES (exposed one tick) then ESCAPES next tick unless recognition crossed
+  the cap; no free immune block, just one more tick for size-driven lock to catch a
+  big/loud colony. Rebalanced around it (nonlinear lock load/33→/45, LOCK_TO_TRANSMIT
+  65→70, sweep 0.45→0.40): **colony 58 / immune 42** (the feedback's colony-underdog
+  target), transmit tick ~17, node PASS, host_death 0%. Verified in LLM play: the
+  two-step fires, the immune REACTS to the telegraph (contains the prepared exit) —
+  though with 2 exits it can still only block one, so a colony usually escapes the other
+  (the intended hidden-info tension). Solo deliberately NOT changed (protected; the
+  feedback's nonlinear-lock fix doesn't fit solo's low-load window win-path — no-op).
+  Inherent limit (accepted): LLMs rush the simple feed→transmit path (~8 ticks), so the
+  intel layer (scout/snitch/investigate) stays an OPTIONAL tool, not mandatory — slowing
+  transmit enough to force it would break the feedback-target balance.
 - Genuinely-remaining (v2, council-deferred): richer arena (drama pacing / leaderboard /
   tournament). In-browser "record an LLM match" button isn't feasible client-side (no CLI
   in the browser) — recording stays a `node agent/record.mjs` step. Solo "too easy for an
