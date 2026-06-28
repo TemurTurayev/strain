@@ -12,10 +12,21 @@
 
 const GOLDEN = 2.399963229;
 
+// Per-organism-type look. bacterium is the original palette/shape (untouched baseline);
+// virus is a violet angular capsid, fungus an amber elongated cell. Each also drives the
+// biofilm web + growth-particle tint so the whole viewport reads as that organism.
+const TYPE_STYLE = {
+  bacterium: { glow: [75, 220, 170], body: ["rgba(143,240,200,", "rgba(43,169,128,", "rgba(17,97,79,"], membrane: [180, 255, 225], web: "rgba(120,230,190,", part: "rgba(140,240,200,", shape: "round" },
+  virus:     { glow: [156, 120, 246], body: ["rgba(198,172,255,", "rgba(128,86,220,", "rgba(70,44,138,"], membrane: [214, 194, 255], web: "rgba(168,138,242,", part: "rgba(184,150,252,", shape: "capsid" },
+  fungus:    { glow: [228, 182, 92], body: ["rgba(242,212,150,", "rgba(202,150,70,", "rgba(120,80,38,"], membrane: [255, 226, 172], web: "rgba(220,182,120,", part: "rgba(232,200,140,", shape: "oval" },
+};
+function style() { return TYPE_STYLE[colonyType] || TYPE_STYLE.bacterium; }
+
 let cv = null, ctx = null, raf = null, dpr = 1, W = 680, H = 220;
 let bgCanvas = null;            // cached static background
 let target = null;
-let disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0, fixation: 0 };
+let colonyType = "bacterium";   // organism type driving the palette/shape
+let disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0, fixation: 0, reservoir: 0 };
 let cells = [];                 // { seed, sp, jr, nuc, bornAt, dmgT }
 let immune = [];                // { x, y, vx, vy, phase, sp, lungeT, trail }
 let particles = [];
@@ -86,7 +97,7 @@ function syncImmune(count) {
 export function mountColony(canvas) {
   if (!canvas || !canvas.getContext) return;
   cv = canvas; ctx = canvas.getContext("2d");
-  disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0, fixation: 0 };
+  disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0, fixation: 0, reservoir: 0 };
   cells = []; immune = []; particles = []; divisions = []; ending = null; damageFlashT = -9; shakeT = -9;
   t0 = performance.now();
   resize();
@@ -102,8 +113,9 @@ function startLoop() {
 
 export function updateColony(state, build) {
   target = { state, build };
+  colonyType = (build && build.type) || "bacterium";
   if (reduced()) {
-    disp = { load: state.colony_load, lock: state.immune_lockon, host: state.host_stability, window: state.transmission_window, turn: state.turn, fixation: state.fixation };
+    disp = { load: state.colony_load, lock: state.immune_lockon, host: state.host_stability, window: state.transmission_window, turn: state.turn, fixation: state.fixation, reservoir: state.reservoir || 0 };
     draw(0);
   }
 }
@@ -128,7 +140,7 @@ export function pulse(kind, mag = 1) {
     for (let i = 0; i < k; i++) {
       const a = Math.random() * 6.28, d = Math.random() * spread;
       if (divisions.length < 40) divisions.push({ x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d, t0: now() });
-      spawnParticle(cx, cy, "rgba(140,240,200,", 12 + Math.random() * 12, 0.6);
+      spawnParticle(cx, cy, style().part, 12 + Math.random() * 12, 0.6);
     }
   } else if (kind === "window") {
     for (let i = 0; i < 12; i++) spawnParticle(W - 16, cy + (Math.random() - 0.5) * H * 0.5, "rgba(120,240,200,", 16, 0.8);
@@ -165,6 +177,7 @@ function draw(time) {
     disp.host = lerp(disp.host, s.host_stability, 0.10);
     disp.window = s.transmission_window; disp.turn = s.turn;
     disp.fixation = lerp(disp.fixation || 0, s.fixation || 0, 0.12);
+    disp.reservoir = lerp(disp.reservoir || 0, s.reservoir || 0, 0.10);
   }
 
   let ep = 0;
@@ -202,8 +215,25 @@ function draw(time) {
   ensureCells(Math.max(1, n));
   const clusterR = 12 + Math.sqrt(Math.max(1, n)) * 7.0;
 
+  // hidden reservoir (viral latency / fungal focus): a dim buried pool + dormant ring
+  // behind the colony, so the unseen mechanic is visible. virus/fungus only.
+  if ((colonyType === "virus" || colonyType === "fungus") && (disp.reservoir || 0) > 1 && !ending) {
+    const [gr, gg, gb] = style().glow;
+    const rr = clamp((disp.reservoir || 0) / (colonyType === "virus" ? 60 : 40), 0, 1);
+    const rad = clusterR + 8 + rr * 26;
+    const pulse = 0.5 + Math.sin(time * 1.4) * 0.2;
+    const halo = ctx.createRadialGradient(cx, cy, clusterR * 0.5, cx, cy, rad);
+    halo.addColorStop(0, `rgba(${gr},${gg},${gb},0)`);
+    halo.addColorStop(0.7, `rgba(${gr},${gg},${gb},${(0.04 + rr * 0.10) * pulse})`);
+    halo.addColorStop(1, `rgba(${gr},${gg},${gb},0)`);
+    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = `rgba(${gr},${gg},${gb},${0.10 + rr * 0.16})`;
+    ctx.lineWidth = 1; ctx.setLineDash([3, 6]); ctx.lineDashOffset = time * 8;
+    ctx.beginPath(); ctx.arc(cx, cy, clusterR + 6, 0, 6.2832); ctx.stroke(); ctx.setLineDash([]);
+  }
+
   // biofilm web between near cells (draw first, behind cells)
-  ctx.strokeStyle = "rgba(120,230,190,0.10)"; ctx.lineWidth = 1;
+  ctx.strokeStyle = style().web + "0.10)"; ctx.lineWidth = 1;
   const pts = [];
   for (let i = 0; i < n; i++) {
     const ang = i * GOLDEN, rad = clusterR * Math.sqrt(i / Math.max(1, n));
@@ -275,21 +305,44 @@ function draw(time) {
   ctx.restore();
 }
 
+// Trace the cell outline for the current organism: round bacterium, angular viral
+// capsid, or elongated fungal cell. Leaves the path current for fill()+stroke().
+function cellPath(x, y, r, c, time) {
+  const shape = style().shape;
+  if (shape === "capsid") {
+    const rot = (c.seed || 0) + time * 0.4;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = rot + i * 1.0472; // 60° — hexagonal capsid
+      const px = x + Math.cos(a) * r * 1.10, py = y + Math.sin(a) * r * 1.10;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+  } else if (shape === "oval") {
+    ctx.beginPath(); ctx.ellipse(x, y, r * 1.38, r * 0.72, (c.nuc || 0), 0, 6.2832); // hyphal
+  } else {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832);
+  }
+}
+
 function drawCell(x, y, r, c, alpha, time) {
+  const st = style();
+  const [gr, gg, gb] = st.glow;
   const damaged = now() - c.dmgT < 0.45;
   // glow
   const glow = ctx.createRadialGradient(x, y, r * 0.2, x, y, r * 2.4);
-  glow.addColorStop(0, `rgba(75,220,170,${0.20 * alpha})`); glow.addColorStop(1, "rgba(75,220,170,0)");
+  glow.addColorStop(0, `rgba(${gr},${gg},${gb},${0.20 * alpha})`); glow.addColorStop(1, `rgba(${gr},${gg},${gb},0)`);
   ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, r * 2.4, 0, 6.2832); ctx.fill();
-  // body
+  // body + membrane (shaped by organism — one path, fill then stroke)
+  cellPath(x, y, r, c, time);
   const body = ctx.createRadialGradient(x - r * 0.3, y - r * 0.4, r * 0.2, x, y, r);
-  body.addColorStop(0, `rgba(143,240,200,${alpha})`); body.addColorStop(0.65, `rgba(43,169,128,${alpha})`); body.addColorStop(1, `rgba(17,97,79,${alpha})`);
-  ctx.fillStyle = body; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
-  // membrane
-  ctx.strokeStyle = damaged ? `rgba(255,120,120,${0.9 * alpha})` : `rgba(180,255,225,${0.7 * alpha})`;
+  body.addColorStop(0, st.body[0] + alpha + ")"); body.addColorStop(0.65, st.body[1] + alpha + ")"); body.addColorStop(1, st.body[2] + alpha + ")");
+  ctx.fillStyle = body; ctx.fill();
+  const [mr, mg, mb] = st.membrane;
+  ctx.strokeStyle = damaged ? `rgba(255,120,120,${0.9 * alpha})` : `rgba(${mr},${mg},${mb},${0.7 * alpha})`;
   ctx.lineWidth = 1.2; ctx.stroke();
-  // nucleus
-  ctx.fillStyle = `rgba(18,64,58,${0.6 * alpha})`;
+  // nucleus / core (neutral dark — reads on every palette)
+  ctx.fillStyle = `rgba(18,22,28,${0.55 * alpha})`;
   ctx.beginPath(); ctx.arc(x + Math.cos(c.nuc) * r * 0.25, y + Math.sin(c.nuc) * r * 0.2, r * 0.34, 0, 6.2832); ctx.fill();
   // rupture ring when freshly hit
   if (damaged) {
@@ -304,7 +357,9 @@ function drawDivision(x, y, p, time) {
   // a cell stretches into a dumbbell, then splits into two
   const sep = easeIO(p) * 6.5;
   const r = 3.6 * (1 - p * 0.15);
-  const tint = "rgba(143,240,200,";
+  const st = style();
+  const tint = st.body[0];
+  const [mr, mg, mb] = st.membrane;
   // bridge while still close
   if (p < 0.7) {
     ctx.strokeStyle = tint + (0.5 * (1 - p / 0.7)) + ")";
@@ -315,7 +370,7 @@ function drawDivision(x, y, p, time) {
   for (const s of [-1, 1]) {
     ctx.beginPath(); ctx.arc(x + s * sep, y, r, 0, 6.2832);
     ctx.fillStyle = tint + (0.9) + ")"; ctx.fill();
-    ctx.strokeStyle = "rgba(180,255,225,0.7)"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = `rgba(${mr},${mg},${mb},0.7)`; ctx.lineWidth = 1; ctx.stroke();
   }
 }
 
