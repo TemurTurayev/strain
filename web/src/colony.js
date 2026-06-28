@@ -10,14 +10,12 @@
 // it stays light. Layered: offscreen tissue+capillaries+noise -> cells -> immune ->
 // particles -> fixation ring -> vignette. Honors prefers-reduced-motion.
 
-import { MAX_TURNS } from "./engine.js";
-
 const GOLDEN = 2.399963229;
 
 let cv = null, ctx = null, raf = null, dpr = 1, W = 680, H = 220;
 let bgCanvas = null;            // cached static background
 let target = null;
-let disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0 };
+let disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0, fixation: 0 };
 let cells = [];                 // { seed, sp, jr, nuc, bornAt, dmgT }
 let immune = [];                // { x, y, vx, vy, phase, sp, lungeT, trail }
 let particles = [];
@@ -33,8 +31,8 @@ function lerp(a, b, k) { return a + (b - a) * k; }
 function easeIO(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
 
 export function fixation() {
-  // The clock the host is racing: one notch per turn, full when it corners you.
-  return clamp(disp.turn / MAX_TURNS, 0, 1);
+  // The real clock: the immune system's accumulated certainty about you (0..1).
+  return clamp((disp.fixation || 0) / 100, 0, 1);
 }
 
 function resize() {
@@ -88,7 +86,7 @@ function syncImmune(count) {
 export function mountColony(canvas) {
   if (!canvas || !canvas.getContext) return;
   cv = canvas; ctx = canvas.getContext("2d");
-  disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0 };
+  disp = { load: 10, lock: 0, host: 100, window: 0, turn: 0, fixation: 0 };
   cells = []; immune = []; particles = []; divisions = []; ending = null; damageFlashT = -9; shakeT = -9;
   t0 = performance.now();
   resize();
@@ -105,7 +103,7 @@ function startLoop() {
 export function updateColony(state, build) {
   target = { state, build };
   if (reduced()) {
-    disp = { load: state.colony_load, lock: state.immune_lockon, host: state.host_stability, window: state.transmission_window, turn: state.turn };
+    disp = { load: state.colony_load, lock: state.immune_lockon, host: state.host_stability, window: state.transmission_window, turn: state.turn, fixation: state.fixation };
     draw(0);
   }
 }
@@ -166,6 +164,7 @@ function draw(time) {
     disp.lock = lerp(disp.lock, s.immune_lockon, 0.10);
     disp.host = lerp(disp.host, s.host_stability, 0.10);
     disp.window = s.transmission_window; disp.turn = s.turn;
+    disp.fixation = lerp(disp.fixation || 0, s.fixation || 0, 0.12);
   }
 
   let ep = 0;

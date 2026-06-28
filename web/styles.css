@@ -574,6 +574,16 @@ button {
 }
 .fixation-bar strong { font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; color: var(--text); }
 
+/* ---- Action preview badge (cost of visibility) ----------------------- */
+.act-fix {
+  display: block;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--warning);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---- Action buttons: a touch more tactile ---------------------------- */
 .acts .btn { transition: transform .08s ease, background .2s ease, border-color .2s ease; }
 .acts .btn:not(:disabled):active { transform: translateY(1px); }

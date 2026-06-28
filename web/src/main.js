@@ -194,7 +194,7 @@ function startRun(selectedBuild) {
   setActionsEnabled(true);
   render();
   appendLog(
-    [["", "strain " + build.name + " — break out before turn " + MAX_TURNS]],
+    [["", "strain " + build.name + " — break out before immune fixation hits 100%"]],
     false
   );
   show("play");
@@ -263,7 +263,7 @@ function shouldPauseAuto() {
   if (!state || !build) return true;
   const eff = state.colony_load * (0.5 + build.adhesion / 10);
   const canTransmit = state.transmission_window > 0 && eff >= T_THRESH;
-  return canTransmit || state.turn / MAX_TURNS >= 0.8;
+  return canTransmit || (state.fixation || 0) >= 80;
 }
 
 function refreshAutoToggle() {
@@ -367,7 +367,7 @@ function renderWin(title, detail, record) {
     el("p", { text: detail }),
     el("p", {
       class: "turn-counter",
-      text: "Transmitted on turn " + record.turn + " of " + MAX_TURNS + ".",
+      text: "Transmitted on turn " + record.turn + ".",
     }),
   ];
   if (best != null) {
@@ -438,9 +438,9 @@ function render() {
   // Inflammation readout.
   countUp(els.valInfl, state.inflammation, { decimals: 1 });
 
-  // Immune fixation — the real clock. Fills one notch per turn and hits exactly
-  // 100% on the turn the host corners you, so the bar never lies.
-  const fix = clampPct((state.turn / MAX_TURNS) * 100);
+  // Immune fixation — the real clock. It now ACCUMULATES from how visible you
+  // play (loud/aggressive fills it faster, stealth slower); at 100% you're cornered.
+  const fix = clampPct(state.fixation || 0);
   if (els.fixationFill) {
     els.fixationFill.style.width = fix + "%";
     els.fixationFill.style.background =
@@ -465,6 +465,7 @@ function render() {
 
   // Contextual hint.
   renderHint();
+  renderActionPreview();
 
   updateSummary();
 }
@@ -478,6 +479,23 @@ function renderWindowPill() {
   els.windowPill.textContent = open
     ? "Window open (" + state.transmission_window + ")"
     : "Window closed";
+}
+
+// Action preview: dry-run each action and show how much immune fixation it
+// would cost (the cost of visibility). Lets the player read the system.
+function renderActionPreview() {
+  const buttons = els.acts.querySelectorAll("button[data-k]");
+  buttons.forEach((b) => {
+    const span = b.querySelector(".act-fix");
+    if (!span) return;
+    try {
+      const [next] = resolve(b.dataset.k, state, build);
+      const dFix = Math.max(0, (next.fixation || 0) - (state.fixation || 0));
+      span.textContent = "+" + dFix.toFixed(1) + " fix";
+    } catch {
+      span.textContent = "";
+    }
+  });
 }
 
 function renderHint() {
@@ -569,9 +587,9 @@ function updateSummary() {
   setSummary(
     "Turn " +
       state.turn +
-      " of " +
-      MAX_TURNS +
-      ". Colony load " +
+      ". Immune fixation " +
+      Math.round(state.fixation || 0) +
+      " percent. Colony load " +
       state.colony_load.toFixed(0) +
       ", host stability " +
       Math.max(0, state.host_stability).toFixed(0) +

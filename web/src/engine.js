@@ -1,4 +1,4 @@
-export const MAX_TURNS = 18;
+export const MAX_TURNS = 30; // hard backstop / autopsy horizon; the real clock is immune fixation
 export const T_THRESH = 60;
 export const CARRY = 300;
 export const COL_VIS = 120;
@@ -35,7 +35,22 @@ export function need(build){ return T_THRESH / (0.5 + build.adhesion/10); }
 
 export function freshState(){
   return { colony_load:START_COLONY, host_stability:START_HOST, inflammation:0,
-    immune_lockon:0, transmission_window:0, turn:0, transmitted:false, latency_turns:0 };
+    immune_lockon:0, transmission_window:0, turn:0, transmitted:false, latency_turns:0,
+    fixation:0, suppressStreak:0, replicateStreak:0 };
+}
+
+// Dynamic immune fixation: the cost of VISIBILITY, not of time. Loud/aggressive
+// play feeds the immune system faster; stealth dampens the signal; spamming one
+// action is punished in the maths (streaks), not by a hand-patched floor.
+export function fixationGain(action, lockOn, inflammation, stealth, suppressStreak, replicateStreak){
+  const lockNorm = lockOn/100, inflNorm = inflammation/100, stealthNorm = stealth/10;
+  const actionNoise = ({ replicate:1.25, suppress:0.65, provoke:1.85, transmit:1.10 })[action] || 1.0;
+  const stealthShield = 1 - 0.32*stealthNorm;
+  const immuneSignal = 0.55 + 0.55*lockNorm + 0.35*inflNorm;
+  let g = 4.15 * immuneSignal * actionNoise * stealthShield;
+  g += Math.max(0, suppressStreak-1)*0.85;  // anti "only suppress"
+  g += Math.max(0, replicateStreak-2)*0.7;   // anti "only replicate"
+  return Math.max(2.4, Math.min(11.5, g));
 }
 
 export function resolve(action, s, build){
@@ -62,12 +77,19 @@ export function resolve(action, s, build){
       const rs = s.transmission_window<=0 ? "no open window" : "load too low (effective "+eff.toFixed(1)+" < "+T_THRESH+")";
       L.push(["no", "transmit → failed ("+rs+"), lock-on +5"]); }
   }
+  const inflThisTurn = s.inflammation;
   const gain = s.inflammation*0.20, nl = Math.min(100, s.immune_lockon+gain);
   let dmg = s.colony_load*0.20*(nl/100)*(1-0.5*r);
   if (s.latency_turns>0){ dmg = 0; s.latency_turns -= 1; }
   s.immune_lockon = nl; s.colony_load = Math.max(0, s.colony_load-dmg);
   s.inflammation = s.inflammation*0.7; s.transmission_window = Math.max(0, s.transmission_window-1); s.turn += 1;
-  L.push(["im", "immune → lock-on +"+gain.toFixed(1)+"→"+nl.toFixed(1)+", damage −"+dmg.toFixed(1)]);
+  // dynamic fixation: accumulate the immune system's certainty about you
+  const sStreak = action === "suppress" ? (s.suppressStreak||0)+1 : 0;
+  const rStreak = action === "replicate" ? (s.replicateStreak||0)+1 : 0;
+  s.suppressStreak = sStreak; s.replicateStreak = rStreak;
+  const fixG = fixationGain(action, nl, inflThisTurn, build.stealth, sStreak, rStreak);
+  s.fixation = Math.min(100, (s.fixation||0) + fixG);
+  L.push(["im", "immune → lock-on +"+gain.toFixed(1)+"→"+nl.toFixed(1)+", damage −"+dmg.toFixed(1)+", fixation +"+fixG.toFixed(1)]);
   return [s, L];
 }
 
@@ -86,6 +108,6 @@ export function evaluate(s){
   if (s.transmitted) return ["win","Transmitted","Your colony broke out to a new host before the immune system finished learning you."];
   if (s.colony_load<=0) return ["loss","Cleared","The immune system locked on and wiped the colony. Too loud, too soon."];
   if (s.host_stability<=0) return ["loss","Host collapsed","You killed the host before transmitting. Virulence with no exit."];
-  if (s.turn>=MAX_TURNS) return ["loss","Out of time","The host recovered before you transmitted. You never opened your window in time."];
+  if ((s.fixation||0) >= 100 || s.turn >= MAX_TURNS) return ["loss","Cornered","Immune fixation reached 100% — the host's adaptive response fully mapped your colony and the defences closed in and cleared it before you broke out."];
   return null;
 }

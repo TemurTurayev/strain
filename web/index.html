@@ -65,7 +65,7 @@
     <section id="screen-play" class="screen" aria-label="Play">
       <div class="play-header">
         <h1 id="strain-title">Strain</h1>
-        <span class="turn-counter">Turn <strong id="turn-now">0</strong> / 18
+        <span class="turn-counter">Turn <strong id="turn-now">0</strong>
           <button id="auto-toggle" class="icon-btn" type="button" aria-label="Auto-play" title="Auto-play — watch the colony run; hands control back at decisive moments">⏵</button>
           <button id="speed-toggle" class="icon-btn" type="button" aria-label="Simulation speed" title="Simulation speed (watch faster)">1×</button>
           <button id="btn-howto-play" class="icon-btn" type="button" aria-label="How to play" title="How to play">?</button>
@@ -75,11 +75,11 @@
 
       <!-- Always-visible goal -->
       <div class="goal-banner" id="goal-banner">
-        <strong>Goal</strong> — grow, open a transmission window, and break out to a new host before the immune system clears you, the host dies, or 18 turns pass.
+        <strong>Goal</strong> — grow, open a transmission window, and break out to a new host before immune fixation hits 100%, the host dies, or your colony is wiped.
       </div>
 
       <!-- Immune fixation: how close the host is to cornering you (the real clock) -->
-      <div class="fixation-bar" title="The host's adaptive response. It fills a little every turn; at 100% the immune system has fully mapped you and clears the colony. This is your clock — break out before it fills.">
+      <div class="fixation-bar" title="The host's adaptive response — the price of being visible. It rises faster when you play loud (replicate, provoke) and slower when you stay stealthy. At 100% the immune system has fully mapped you and clears the colony. Break out before it fills.">
         <span class="fixation-label">Immune fixation</span>
         <div class="fixbar"><div class="fixbar-fill" id="fixation-fill"></div></div>
         <strong id="fixation">0%</strong>
@@ -123,10 +123,10 @@
 
       <!-- Four actions. data-k = engine action key. -->
       <div class="acts" id="acts">
-        <button class="btn" type="button" data-k="replicate">Replicate <span class="act-desc">grow + reveal</span></button>
-        <button class="btn" type="button" data-k="suppress">Suppress <span class="act-desc">cool down</span></button>
-        <button class="btn" type="button" data-k="provoke">Provoke <span class="act-desc">open window</span></button>
-        <button class="btn" type="button" data-k="transmit">Transmit <span class="act-desc">break out</span></button>
+        <button class="btn" type="button" data-k="replicate">Replicate <span class="act-desc">grow + reveal</span><span class="act-fix"></span></button>
+        <button class="btn" type="button" data-k="suppress">Suppress <span class="act-desc">cool down</span><span class="act-fix"></span></button>
+        <button class="btn" type="button" data-k="provoke">Provoke <span class="act-desc">open window</span><span class="act-fix"></span></button>
+        <button class="btn" type="button" data-k="transmit">Transmit <span class="act-desc">break out</span><span class="act-fix"></span></button>
       </div>
 
       <!-- mutations.js mounts the mutation modal here -->
@@ -151,13 +151,14 @@
         <button class="icon-btn" type="button" data-howto-close aria-label="Close">✕</button>
       </div>
 
-      <p class="overlay-goal">Survive and spread: grow your colony, open a transmission window, and break out to a new host — before the immune system clears you, you kill the host, or 18 turns run out.</p>
+      <p class="overlay-goal">Survive and spread: grow your colony, open a transmission window, and break out to a new host — before immune fixation reaches 100%, you kill the host, or your colony is cleared.</p>
 
-      <h3>The four indicators</h3>
+      <h3>The indicators</h3>
       <ul class="explain">
+        <li><span class="dot dot-window"></span><strong>Immune fixation</strong> — your real clock, and the price of being visible. It rises every turn — faster when you play loud (replicate, provoke), slower when you stay stealthy. At 100% the host has fully mapped you and clears the colony. Each action shows how much fixation it will cost.</li>
         <li><span class="dot dot-colony"></span><strong>Colony load</strong> — your population. You need enough of it to transmit. Replicating grows it.</li>
         <li><span class="dot dot-host"></span><strong>Host stability</strong> — the host's health. If it reaches zero you've killed your host before escaping, and you lose. Provoking lowers it.</li>
-        <li><span class="dot dot-lock"></span><strong>Immune lock-on</strong> — how well the immune system has learned your signature. The higher it climbs, the harder it damages you every turn. This is the clock you're racing.</li>
+        <li><span class="dot dot-lock"></span><strong>Immune lock-on</strong> — how well the immune system has learned your signature right now. The higher it climbs, the harder it damages your colony each turn (and the faster fixation rises). Suppress lowers it.</li>
         <li><span class="dot dot-window"></span><strong>Transmission window</strong> — your escape gate. Closed by default; provoke opens it for a few turns. You can only transmit while it's open.</li>
       </ul>
 
@@ -170,7 +171,7 @@
       </ul>
 
       <h3>The tension</h3>
-      <p class="overlay-note">Grow loud and fast and the immune system locks on before you can escape. Stay too quiet and you run out of time. Each strain tilts this balance differently — Aggressive races, Silent hides, Sticky transmits early.</p>
+      <p class="overlay-note">Every loud move is a trade: it grows or opens your shot, but it fills immune fixation faster, so the host corners you sooner. Play too quietly and you never get big enough in time. Each strain tilts this differently — Aggressive races, Silent hides, Sticky transmits early.</p>
 
       <div class="menu-actions">
         <button class="btn btn-primary" type="button" data-howto-close>Got it</button>
