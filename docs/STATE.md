@@ -68,8 +68,12 @@ Enrichment roadmap `docs/plans/2026-06-27-enrichment-roadmap.md` — progress:
   detection heat, exit rings, immune-action FX), per-faction fog-of-war side panels +
   Reveal-Truth toggle, scrubber/play/seed, runs heuristic games live in-browser OR
   loads a recorded JSON (EcoReplay v1; bare transcripts play in degraded mode).
-- Still pending: tune VERSUS to ~50/50; optional — richer arena (drama/narration,
-  leaderboard) deferred to v2; wire LLM-match recording button.
+- ✅ VERSUS tuned 36/64 → 44/56 (7a316c6), all 4 invariants PASS.
+- ✅ Real 3-model match recorded + replays in the arena via `eco-viewer.html?game=/llm_match.json`
+  (8f31489) — verified live in-browser.
+- Genuinely-remaining (v2, council-deferred): richer arena (drama pacing / turn
+  narration / leaderboard). In-browser "record an LLM match" button isn't feasible
+  client-side (no CLI in the browser) — recording stays a `node agent/record.mjs` step.
 Principle: depth via indicators that change the value of existing actions.
 
 ## How the work was split (Consilium)
