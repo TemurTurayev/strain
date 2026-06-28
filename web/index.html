@@ -52,7 +52,11 @@
     <!-- ================= BUILD / DRAFT ================= -->
     <section id="screen-build" class="screen" aria-label="Choose a strain">
       <h1>Choose a strain</h1>
-      <p class="subtitle">Pick a proven strain, or allocate a custom genome.</p>
+      <p class="subtitle">Pick a proven strain, or allocate a custom genome — tailor it to the host below.</p>
+
+      <!-- host state for this run (main.js fills it; reroll for a different one) -->
+      <div class="host-card" id="host-card"></div>
+      <button id="host-reroll" class="btn host-reroll" type="button">↻ Reroll host</button>
 
       <div id="build-root" class="card"></div>
 
@@ -64,7 +68,10 @@
     <!-- ================= PLAY ================= -->
     <section id="screen-play" class="screen" aria-label="Play">
       <div class="play-header">
-        <h1 id="strain-title">Strain</h1>
+        <div class="play-title">
+          <h1 id="strain-title">Strain</h1>
+          <span class="host-line">host: <strong id="host-badge"></strong></span>
+        </div>
         <span class="turn-counter">Turn <strong id="turn-now">0</strong>
           <button id="auto-toggle" class="icon-btn" type="button" aria-label="Auto-play" title="Auto-play — watch the colony run; hands control back at decisive moments">⏵</button>
           <button id="speed-toggle" class="icon-btn" type="button" aria-label="Simulation speed" title="Simulation speed (watch faster)">1×</button>

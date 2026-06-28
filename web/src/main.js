@@ -25,6 +25,10 @@ import {
   resolve,
   evaluate,
   applyMutation,
+  HOSTS,
+  HOST_KEYS,
+  transmitScore,
+  transmitThreshold,
 } from "./engine.js";
 
 import { mountBuildScreen } from "./genome.js?v=2";
@@ -60,6 +64,9 @@ const els = {
   // build
   buildRoot: $("build-root"),
   backMenu: $("btn-back-menu"),
+  hostCard: $("host-card"),
+  hostReroll: $("host-reroll"),
+  hostBadge: $("host-badge"),
   // play header
   strainTitle: $("strain-title"),
   turnNow: $("turn-now"),
@@ -105,6 +112,7 @@ let beatActive = false; // true while a turn's consequence is playing out (input
 let speed = 1; // simulation speed: 1 | 2 | 4 (scales the beat duration)
 let autoPlay = false; // auto-repeat the last action until a decisive moment
 let lastAction = null; // last action chosen (what auto-play repeats)
+let currentHost = null; // host state for this run (picked on the build screen)
 
 const BEAT_BASE_MS = 750;
 function beatDuration() { return Math.max(220, BEAT_BASE_MS / speed); }
@@ -158,10 +166,29 @@ function renderMenu() {
 // ----------------------------------------------------------------------------
 // Build / draft screen (genome.js owns the contents of #build-root)
 // ----------------------------------------------------------------------------
+function pickHost() {
+  const key = HOST_KEYS[Math.floor(Math.random() * HOST_KEYS.length)];
+  currentHost = HOSTS[key];
+  renderHostCard();
+}
+
+function renderHostCard() {
+  if (!els.hostCard || !currentHost) return;
+  els.hostCard.textContent = "";
+  els.hostCard.appendChild(
+    el("div", { class: "host-inner" }, [
+      el("span", { class: "host-tag", text: "This host" }),
+      el("strong", { class: "host-name", text: currentHost.name }),
+      el("span", { class: "host-blurb", text: currentHost.blurb }),
+    ])
+  );
+}
+
 function renderBuild() {
   stopColony();
   stopHum();
   autoPlay = false; refreshAutoToggle();
+  pickHost();
   mountBuildScreen(els.buildRoot, startRun);
   setSummary(
     "Build screen. Pick a proven strain or allocate a custom genome of " +
@@ -175,13 +202,15 @@ function renderBuild() {
 // ----------------------------------------------------------------------------
 function startRun(selectedBuild) {
   build = selectedBuild;
-  state = freshState();
+  if (!currentHost) currentHost = HOSTS.healthy;
+  state = freshState(currentHost);
   history = [];
   awaitingMutation = false;
   lastAction = null;
   refreshAutoToggle();
 
   els.strainTitle.textContent = build.name || "Strain";
+  if (els.hostBadge) els.hostBadge.textContent = currentHost.name;
   clear(els.log);
   clear(els.mutModal);
 
@@ -261,9 +290,15 @@ function afterBeat() {
 // Auto-play yields control when a transmit is on the table or the endgame is near.
 function shouldPauseAuto() {
   if (!state || !build) return true;
-  const eff = state.colony_load * (0.5 + build.adhesion / 10);
-  const canTransmit = state.transmission_window > 0 && eff >= T_THRESH;
-  return canTransmit || (state.fixation || 0) >= 80;
+  const canTransmit = state.transmission_window > 0 && transmitScore(state, build) >= transmitThreshold(state);
+  // hand control back at any decisive moment: a transmit is on the table, the
+  // clock is nearly out, the host is dying, or the immune system is mauling you.
+  return (
+    canTransmit ||
+    (state.fixation || 0) >= 80 ||
+    state.host_stability <= 25 ||
+    state.immune_lockon >= 72
+  );
 }
 
 function refreshAutoToggle() {
@@ -472,8 +507,7 @@ function render() {
 
 function renderWindowPill() {
   const open = state.transmission_window > 0;
-  const eff = state.colony_load * (0.5 + build.adhesion / 10);
-  const wouldLand = open && eff >= T_THRESH;
+  const wouldLand = open && transmitScore(state, build) >= transmitThreshold(state);
   els.windowPill.classList.toggle("open", open && !wouldLand);
   els.windowPill.classList.toggle("success", wouldLand);
   els.windowPill.textContent = open
@@ -688,6 +722,7 @@ function init() {
   refreshSpeedToggle();
   if (els.autoToggle) els.autoToggle.addEventListener("click", toggleAuto);
   refreshAutoToggle();
+  if (els.hostReroll) els.hostReroll.addEventListener("click", pickHost);
 
   // Onboarding: intro screen + how-to overlay.
   if (els.introContinue)
